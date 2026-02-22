@@ -39,7 +39,11 @@ SECTIONS
 
 ### `. = 1M;`
 
-Sets the load address of the kernel to 1 MiB (0x100000), a conventional address for BIOS bootloaders.
+The starting address for the kernel is set to 1 MiB (0x100000). This is a conventional location for kernels to be loaded by the bootloader, particularly in older BIOS systems.
+
+```ld
+. = 1M;
+```
 
 ### `.boot`
 
@@ -48,11 +52,26 @@ The `.boot` section preserves the Multiboot header so the bootloader can detect 
 - `KEEP(...)` prevents the linker from discarding the header as unused.
 - `*(.multiboot_header)` pulls the header section from all object files.
 
+```ld
+
+.boot :
+{
+    KEEP(*(.multiboot_header))
+}
+```
+
 ### `.text`
 
-The `.text` section contains the executable code for the kernel.
+The `.text` section contains the executable code. It starts with the multiboot header, followed by the kernel’s code.
 
-- `*(.text)` includes all `.text` sections from object files.
+
+```ld
+
+.text :
+{
+    *(.text)
+}
+```
 
 ## Summary
 
