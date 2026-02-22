@@ -79,4 +79,4 @@ If the compiler generates additional sections, they will be included in segments
 
 ## Summary
 
-This linker script places the kernel at 1 MiB, keeps the Multiboot header in a dedicated `.boot` section, and includes the kernel code in `.text`. If you add more sections (e.g., `.rodata`, `.data`, `.bss`), update this file to reflect those layouts.
+This linker script places the kernel at 1 MiB, keeps the Multiboot header in a dedicated `.boot` section, and includes the kernel code in `.text`. If you add more sections, update this file to reflect those layouts.
