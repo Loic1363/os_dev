@@ -73,6 +73,10 @@ The `.text` section contains the executable code. It starts with the multiboot h
 }
 ```
 
+### Additional Sections
+
+If the compiler generates additional sections, they will be included in segments with the same name. Modify the script to accommodate these as needed.
+
 ## Summary
 
 This linker script places the kernel at 1 MiB, keeps the Multiboot header in a dedicated `.boot` section, and includes the kernel code in `.text`. If you add more sections (e.g., `.rodata`, `.data`, `.bss`), update this file to reflect those layouts.
