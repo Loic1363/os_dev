@@ -1,22 +1,66 @@
-global start 
-extern long_mode_start
-
+global start ; rendre "start" visible pour tous les programmes et notamment pour linker.ld (aussi non c'est local)
+extern long_mode_start ; dire que long_mode_start est défini ailleurs, donc dans un autre fichier il y aura global long_mode_start"
+; ============================================================
 section .text
-bits 32
-start: 
-    mov esp, stack_top
+bits 32 ; on spécifie le mode en 32 bits
+start: ; dans le linker je spécifie que "start:" est l'entrée de mon programme via ENTRY(start) 
 
-    call check_multiboot
+    mov esp, stack_top ; on initialise la stack - ESP = Extended Stack Pointer, le registre de pile en 32 bits.
+; met donc la valeur de stack_top dans 
+
+; ============================================================
+;   Layout mémoire .bss (pile + tables de pages)
+;   La pile x86 descend (ESP--) à chaque push/call
+;
+;   Adresses hautes
+;           |
+;           v
+;
+;        +-------------------------+  <- stack_top (ESP initial)
+;        |         PILE            |
+;        |   (16 KB réservés)      |
+;        |     push / call ↓       |
+;        |                         |
+;        |                         |
+;        +-------------------------+  <- stack_bottom
+;        |      page_table_l2      |
+;        +-------------------------+
+;        |      page_table_l3      |
+;        +-------------------------+
+;        |      page_table_l4      |
+;        +-------------------------+
+;
+;   Adresses basses
+; ============================================================
+; ici on appelle les fonctions définies plus tot (start: est comme un 'main')
+    call check_multiboot 
     call check_cpuid
     call check_long_mode
 
     call setup_page_tables
     call enable_paging
 
-    lgdt   [gdt64.pointer]
-    jmp gdt64.code_segment:long_mode_start
+; ============================================================
+
+    lgdt   [gdt64.pointer] ; lgdt = load global descriptor table -> elle prend la valeur de gdt64.pointer en mémoire et la met dans le registre interne GDTR
+
+; gdt  = global descriptor table (contient les données sous forme de table)
+; gtdr = global descriptor Table Register (registre interne et contient GDTR.base   = adresse où se trouve la GDT en mémoire
+;                                                                       GDTR.limit  = taille de la GDT - 1)
+
+
+
+
+
+
+
+
+
+
+    jmp gdt64.code_segment:long_mode_start ; et maintenant on peut aller en long mode (64 bits)
 
     hlt ; halt CPU for no more instructions
+; ============================================================
 
 
 check_multiboot:

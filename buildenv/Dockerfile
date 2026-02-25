@@ -16,3 +16,13 @@ WORKDIR /root/env
 #                      make build-x86_64
 #                      exit
 #                      qemu-system-x86_64 -cdrom dist/x86_64/kernel.iso
+
+
+# Sur Linux : 
+# sudo docker build buildenv -t myos-buildenv
+
+
+# sudo docker run --rm -it -v $(pwd):/root/env myos-buildenv
+# make build-x86_64
+# exit
+# qemu-system-x86_64 -cdrom dist/x86_64/kernel.iso -m 256M -display sdl
