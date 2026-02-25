@@ -1,55 +1,150 @@
-# Write Your Own 64-bit Operating System Kernel From Scratch
-## From David Callanan  (@CodePulse on Youtube)
-This respository holds all the source code for [this YouTube tutorial series](https://www.youtube.com/playlist?list=PLZQftyCk7_SeZRitx5MjBKzTtvk0pHMtp).
+# PipOS (x86_64 Hobby Kernel)
 
-You can find the revision for a specific episode on [this page](https://github.com/davidcallanan/yt-os-series/tags).
+PipOS is a small 64-bit hobby operating system kernel written mostly in C with a small amount of x86_64 assembly for boot and interrupt/exception entry stubs.
 
-You can find pre-built ISO files for this kernel at [this repository](https://github.com/davidcallanan/os-series-isos).
+This project started from the early tutorial codebase by **David Callanan (@CodePulse)** and has since been extended/refactored with new kernel features (interrupts, PIT/RTC, console shell, in-memory filesystem, status line, exception handlers, etc.).
 
-Considering supporting this work via [my Patreon page](http://patreon.com/codepulse).
+## Attribution
 
-## Prerequisites
+The initial boot/kernel foundation comes from the "Write Your Own 64-bit Operating System Kernel From Scratch" tutorial series by David Callanan:
 
- - A text editor such as [VS Code](https://code.visualstudio.com/).
- - [Docker](https://www.docker.com/) for creating our build-environment.
- - [Qemu](https://www.qemu.org/) for emulating our operating system.
-   - Remember to add Qemu to the path so that you can access it from your command-line. ([Windows instructions here](https://dev.to/whaleshark271/using-qemu-on-windows-10-home-edition-4062))
+- YouTube playlist: <https://www.youtube.com/playlist?list=PLZQftyCk7_SeZRitx5MjBKzTtvk0pHMtp>
+- Original repository / revisions: <https://github.com/davidcallanan/yt-os-series>
 
-## Setup
+This repository is an independent derivative project with additional features and structural changes.
 
-Build an image for our build-environment:
- - `docker build buildenv -t myos-buildenv`
+## Current Features
 
-## Build
+- 32-bit boot code -> switch to 64-bit long mode
+- VGA text-mode output (80x25)
+- IDT + PIC initialization
+- IRQ handlers:
+  - PIT timer (IRQ0)
+  - PS/2 keyboard (IRQ1)
+- CPU exception handlers with panic screen:
+  - `#DE` Divide Error
+  - `#GP` General Protection Fault
+  - `#PF` Page Fault
+- RTC time reads (`HH:MM:SS`)
+- Interactive shell-like console:
+  - command history (`Up` / `Down`)
+  - software blinking cursor
+  - `Ctrl+L` to clear screen
+- In-memory filesystem (RAM-only, no disk persistence yet)
 
-Enter build environment:
- - Linux or MacOS: `docker run --rm -it -v "$(pwd)":/root/env myos-buildenv`
- - Windows (CMD): `docker run --rm -it -v "%cd%":/root/env myos-buildenv`
- - Windows (PowerShell): `docker run --rm -it -v "${pwd}:/root/env" myos-buildenv`
- - Please use the linux command if you are using `WSL`, `msys2` or `git bash`
- - NOTE: If you are having trouble with an unshared drive, ensure your docker daemon has access to the drive you're development environment is in. For Docker Desktop, this is in "Settings > Shared Drives" or "Settings > Resources > File Sharing".
+## Project Layout
 
-Build for x86 (other architectures may come in the future):
- - `make build-x86_64`
- - If you are using Qemu, please close it before running this command to prevent errors.
+```text
+src/
+├── impl/
+│   ├── kernel/
+│   │   ├── main.c
+│   │   ├── console.c
+│   │   └── lib/x86_64/functions/
+│   │       ├── ramfs.c
+│   │       ├── string.c
+│   │       └── tokenizer.c
+│   └── x86_64/
+│       ├── boot/
+│       ├── idt.c
+│       ├── idt_.asm
+│       ├── pic.c
+│       ├── pit.c
+│       ├── print.c
+│       ├── ps2.c
+│       ├── rtc.c
+│       └── ...
+└── intf/
+    ├── console.h
+    ├── print.h
+    └── lib/x86_64/functions/
+        ├── ramfs.h
+        ├── string.h
+        └── tokenizer.h
+```
 
-To leave the build environment, enter `exit`.
+## In-Kernel RAM Filesystem (Demo Tree)
 
-## Emulate
+The shell currently operates on a built-in in-memory tree (seeded at boot). Example:
 
-You can emulate your operating system using [Qemu](https://www.qemu.org/): (Don't forget to [add qemu to your path](https://dev.to/whaleshark271/using-qemu-on-windows-10-home-edition-4062#:~:text=2.-,Add%20Qemu%20path%20to%20environment%20variables%20settings,-Copy%20the%20Qemu)!)
+```text
+/
+├── bin/
+├── home/
+│   └── user/
+├── lib/
+│   └── x86_64/
+│       └── functions/
+│           ├── idt
+│           ├── port
+│           └── print
+└── tmp/
+```
 
- - `qemu-system-x86_64 -cdrom dist/x86_64/kernel.iso`
- - Note: Close the emulator when finished, so as to not block writing to `kernel.iso` for future builds.
+## Shell Commands (Current)
 
-If the above command fails, try one of the following:
- - Windows: [`qemu-system-x86_64 -cdrom dist/x86_64/kernel.iso -L "C:\Program Files\qemu"`](https://stackoverflow.com/questions/66266448/qemu-could-not-load-pc-bios-bios-256k-bin)
- - Linux: [`qemu-system-x86_64 -cdrom dist/x86_64/kernel.iso -L /usr/share/qemu/`](https://unix.stackexchange.com/questions/134893/cannot-start-kvm-vm-because-missing-bios)
- - Alternatively, install a custom BIOS binary file and link it to Qemu using the `-L` option.
+- `help`
+- `clear` / `cls`
+- `echo ...`
+- `about`
+- `version`
+- `time`
+- `ticks`
+- `uptime`
+- `pwd`
+- `ls [path]`
+- `tree [path]`
+- `cd [path]`
+- `mkdir <path>`
+- `touch <path>`
+- `mv <src> <dst>`
+- `panic_de` / `panic_gp` / `panic_pf` (exception test commands)
 
-Alternatively, you should be able to load the operating system on a USB drive and boot into it when you turn on your computer. (I haven't actually tested this yet.)
+## Build Requirements
 
-## Cleanup
+- Docker
+- QEMU (`qemu-system-x86_64`)
 
-Remove the build-evironment image:
- - `docker rmi myos-buildenv -f`
+The Docker image contains the cross-toolchain and build dependencies (`x86_64-elf-gcc`, `ld`, `nasm`, GRUB tools).
+
+## Quick Start (Recommended)
+
+Build the Docker image once:
+
+```bash
+sudo docker build buildenv -t myos-buildenv
+```
+
+Then use the one-command helper script:
+
+```bash
+./boot.sh
+```
+
+`boot.sh` will:
+
+1. Build the kernel + ISO inside Docker
+2. Launch QEMU with the generated ISO
+
+## Manual Build / Run (Alternative)
+
+```bash
+sudo docker run --rm -t -v "$(pwd):/root/env" myos-buildenv bash -lc "make build-x86_64"
+qemu-system-x86_64 -cdrom dist/x86_64/kernel.iso -m 256M -display sdl
+```
+
+## Keyboard Notes
+
+The console uses a **Belgian AZERTY** key mapping (work-in-progress). Some non-ASCII Belgian characters are mapped to ASCII fallbacks in VGA text mode.
+
+## Roadmap (Short)
+
+- `rm` / `rmdir`
+- file contents in RAM FS (`cat`, write support)
+- better line editing (`Left` / `Right`, `Delete`)
+- serial COM1 logging
+- disk-backed filesystem (FAT read-only first)
+
+## License
+
+This project is licensed under the **MIT License**. See [`LICENSE`](LICENSE).
