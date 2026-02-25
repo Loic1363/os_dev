@@ -51,6 +51,9 @@
 #define KEY_CODE_ENTER 0x1C
 #define PIT_TEST_LIMIT_SECONDS 10
 #define CONSOLE_LINE_MAX 64
+#define PIT_HZ 100
+#define STATUS_ROW 0
+#define STATUS_BUF_MAX 80
 
 static bool g_shift_left = false;
 static bool g_shift_right = false;
@@ -59,6 +62,8 @@ static bool g_caps_lock = false;
 static bool g_console_enabled = false;
 static char g_console_line[CONSOLE_LINE_MAX];
 static uint8_t g_console_line_len = 0;
+static uint64_t g_last_status_ticks = (uint64_t) -1;
+static uint8_t g_last_status_rtc_second = 255;
 
 static bool is_alpha(char c) {
     return c >= 'a' && c <= 'z';
@@ -88,9 +93,92 @@ static bool strstarts(const char* str, const char* prefix) {
     }
 }
 
+static void buf_append_char(char* buf, size_t* len, char ch) {
+    if (*len >= (STATUS_BUF_MAX - 1)) {
+        return;
+    }
+
+    buf[*len] = ch;
+    (*len)++;
+    buf[*len] = '\0';
+}
+
+static void buf_append_str(char* buf, size_t* len, const char* str) {
+    for (size_t i = 0; str[i] != '\0'; i++) {
+        buf_append_char(buf, len, str[i]);
+    }
+}
+
+static void buf_append_u64_dec(char* buf, size_t* len, uint64_t value) {
+    if (value == 0) {
+        buf_append_char(buf, len, '0');
+        return;
+    }
+
+    char tmp[20];
+    size_t n = 0;
+    while (value > 0 && n < sizeof(tmp)) {
+        tmp[n++] = (char) ('0' + (value % 10));
+        value /= 10;
+    }
+
+    while (n > 0) {
+        n--;
+        buf_append_char(buf, len, tmp[n]);
+    }
+}
+
 static void print_2digits(uint8_t value) {
     print_char((char) ('0' + ((value / 10) % 10)));
     print_char((char) ('0' + (value % 10)));
+}
+
+static void console_print_uptime() {
+    uint64_t ticks = pit_ticks();
+    uint64_t seconds = ticks / PIT_HZ;
+    uint64_t centis = (ticks % PIT_HZ);
+
+    print_str("uptime=");
+    print_uint64_dec(seconds);
+    print_char('.');
+    print_char((char) ('0' + ((centis / 10) % 10)));
+    print_char((char) ('0' + (centis % 10)));
+    print_str("s\n");
+}
+
+static void render_status_line() {
+    uint64_t ticks = pit_ticks();
+    uint64_t pit_seconds = ticks / PIT_HZ;
+    uint8_t rtc_s = rtc_seconds();
+
+    if (ticks == g_last_status_ticks && rtc_s == g_last_status_rtc_second) {
+        return;
+    }
+
+    g_last_status_ticks = ticks;
+    g_last_status_rtc_second = rtc_s;
+
+    uint8_t rtc_h = rtc_hours();
+    uint8_t rtc_m = rtc_minutes();
+
+    char line[STATUS_BUF_MAX];
+    size_t len = 0;
+    line[0] = '\0';
+
+    buf_append_str(line, &len, " STATUS | PIT ");
+    buf_append_u64_dec(line, &len, pit_seconds);
+    buf_append_str(line, &len, "s | RTC ");
+    buf_append_char(line, &len, (char) ('0' + ((rtc_h / 10) % 10)));
+    buf_append_char(line, &len, (char) ('0' + (rtc_h % 10)));
+    buf_append_char(line, &len, ':');
+    buf_append_char(line, &len, (char) ('0' + ((rtc_m / 10) % 10)));
+    buf_append_char(line, &len, (char) ('0' + (rtc_m % 10)));
+    buf_append_char(line, &len, ':');
+    buf_append_char(line, &len, (char) ('0' + ((rtc_s / 10) % 10)));
+    buf_append_char(line, &len, (char) ('0' + (rtc_s % 10)));
+
+    print_clear_row_at(STATUS_ROW, PRINT_COLOR_BLACK, PRINT_COLOR_LIGHT_GRAY);
+    print_write_str_at(STATUS_ROW, 0, line, PRINT_COLOR_BLACK, PRINT_COLOR_LIGHT_GRAY);
 }
 
 static char apply_case(char c, bool shift, bool caps_lock) {
@@ -188,13 +276,16 @@ static void console_submit_line() {
     }
 
     if (streq(g_console_line, "help")) {
-        print_str("Commands: help clear ticks time echo\n");
+        print_str("Commands: help clear ticks time uptime echo\n");
     } else if (streq(g_console_line, "clear")) {
         print_clear();
+        render_status_line();
     } else if (streq(g_console_line, "ticks")) {
         print_str("ticks=");
         print_uint64_dec(pit_ticks());
         print_char('\n');
+    } else if (streq(g_console_line, "uptime")) {
+        console_print_uptime();
     } else if (streq(g_console_line, "time")) {
         uint8_t h = rtc_hours();
         uint8_t m = rtc_minutes();
@@ -317,53 +408,51 @@ void kernel_main() {
 
     keyboard_init();
     keyboard_set_handler(handle_input);
-    pit_init(100);
+    pit_init(PIT_HZ);
 
-    for (uint64_t i = 0; i < 100; i++) {
-        print_uint64_dec(i);
-        print_char(' ');
-    }
+    // Disabled: early print smoke test (0..99 output) used to validate VGA text rendering.
+    // for (uint64_t i = 0; i < 100; i++) {
+    //     print_uint64_dec(i);
+    //     print_char(' ');
+    // }
 
-    uint8_t prev_seconds = 0;
+    // Disabled: RTC polling smoke test used to verify CMOS/RTC reads before the console was added.
+    // uint8_t prev_seconds = 0;
 
-    for (uint8_t i = 0; i < 5;) {
-        uint8_t seconds = rtc_seconds();
+    // for (uint8_t i = 0; i < 5;) {
+    //     uint8_t seconds = rtc_seconds();
 
-        if (seconds != prev_seconds) {
-            i++;
-            print_set_color(PRINT_COLOR_GREEN, PRINT_COLOR_BLACK);
-            print_str("\nSeconds: ");
-            print_uint64_dec(seconds);
-        }
+    //     if (seconds != prev_seconds) {
+    //         i++;
+    //         print_set_color(PRINT_COLOR_GREEN, PRINT_COLOR_BLACK);
+    //         print_str("\nSeconds: ");
+    //         print_uint64_dec(seconds);
+    //     }
 
-        prev_seconds = seconds;
-    }
+    //     prev_seconds = seconds;
+    // }
 
-    print_str(" - Seconds loop disabled.\n");
+    // The RTC smoke test above is intentionally disabled.
     g_console_enabled = true;
     console_reset_line();
     print_set_color(PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
     print_str("Console ready. Type 'help'.");
     console_print_prompt();
 
+    // Disabled: PIT timing smoke test (kept as an internal flag only, no visible spam in the console).
     uint64_t last_reported_second = 0;
     bool pit_test_done = false;
     while (1) {
         uint64_t ticks = pit_ticks();
-        uint64_t seconds = ticks / 100;
+        uint64_t seconds = ticks / PIT_HZ;
 
         if (!pit_test_done && seconds != last_reported_second) {
             last_reported_second = seconds;
-            print_set_color(PRINT_COLOR_LIGHT_GREEN, PRINT_COLOR_BLACK);
-            print_str(" [PIT ");
-            print_uint64_dec(seconds);
-            print_str("s]");
-
             if (seconds >= PIT_TEST_LIMIT_SECONDS) {
                 pit_test_done = true;
-                print_set_color(PRINT_COLOR_YELLOW, PRINT_COLOR_BLACK);
-                print_str(" [PIT test done]");
             }
         }
+
+        render_status_line();
     }
 }
