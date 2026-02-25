@@ -6,6 +6,7 @@
 
 #define KEY_CODE_1 0x02
 #define KEY_CODE_BACKSPACE 0x0E
+#define KEY_CODE_TAB 0x0F
 #define KEY_CODE_LCTRL 0x1D
 #define KEY_CODE_2 0x03
 #define KEY_CODE_3 0x04
@@ -44,6 +45,9 @@
 #define KEY_CODE_X 0x2D
 #define KEY_CODE_Y 0x15
 #define KEY_CODE_Z 0x2C
+#define KEY_CODE_COMMA_US 0x33
+#define KEY_CODE_PERIOD_US 0x34
+#define KEY_CODE_SLASH_US 0x35
 
 #define KEY_CODE_LSHIFT 0x2A
 #define KEY_CODE_RSHIFT 0x36
@@ -123,6 +127,9 @@ static char keyboard_to_ascii_be(uint16_t code, bool shift, bool altgr, bool cap
         case KEY_CODE_B: return apply_case('b', shift, caps_lock);
         case KEY_CODE_N: return apply_case('n', shift, caps_lock);
         case KEY_CODE_M: return shift ? '?' : ','; // US M key is punctuation on Belgian AZERTY
+        case KEY_CODE_COMMA_US: return shift ? '.' : ';';
+        case KEY_CODE_PERIOD_US: return shift ? '/' : ':';
+        case KEY_CODE_SLASH_US: return shift ? '+' : '='; // ASCII fallback for Belgian punctuation key
 
         // Number row (Belgian: digits with Shift)
         case KEY_CODE_1: return shift ? '1' : '&';
@@ -181,6 +188,10 @@ static void handle_keyboard_input(struct KeyboardEvent event) {
         console_handle_backspace();
         return;
     }
+    if (event.code == KEY_CODE_TAB) {
+        console_handle_tab();
+        return;
+    }
 
     if (event.code == KEY_CODE_ARROW_UP) {
         console_history_prev();
@@ -209,7 +220,7 @@ static void handle_keyboard_input(struct KeyboardEvent event) {
 
 static void print_boot_splash() {
     print_clear();
-    print_set_color(PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
+    print_set_color(PRINT_COLOR_LIGHT_GREEN, PRINT_COLOR_BLACK);
     print_str("\n");
     print_str("                                                     .-'''-.        \n");
     print_str("                                                    '   _    \\      \n");

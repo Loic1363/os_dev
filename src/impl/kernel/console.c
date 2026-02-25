@@ -68,8 +68,13 @@ static void print_2digits(uint8_t value) {
 }
 
 static void console_print_prompt() {
+    char cwd[64];
+    ramfs_get_prompt_cwd(cwd, sizeof(cwd));
+    print_set_color(PRINT_COLOR_LIGHT_GREEN, PRINT_COLOR_BLACK);
+    print_str("\nadmin:");
     print_set_color(PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
-    print_str("\n> ");
+    print_str(cwd);
+    print_str("$ ");
 }
 
 static void console_cursor_hide() {
@@ -200,6 +205,62 @@ static void console_replace_current_line(const char* text) {
     console_cursor_refresh_after_output();
 }
 
+static void console_try_tab_complete_path_token() {
+    if (g_console_line_len == 0) {
+        return;
+    }
+
+    size_t token_start = g_console_line_len;
+    while (token_start > 0 && g_console_line[token_start - 1] != ' ') {
+        token_start--;
+    }
+
+    if (token_start >= g_console_line_len) {
+        return;
+    }
+
+    char token[CONSOLE_LINE_MAX];
+    size_t token_len = g_console_line_len - token_start;
+    if (token_len >= sizeof(token)) {
+        return;
+    }
+
+    for (size_t i = 0; i < token_len; i++) {
+        token[i] = g_console_line[token_start + i];
+    }
+    token[token_len] = '\0';
+
+    if (token[0] == '\0') {
+        return;
+    }
+
+    if (token[0] != '/' && token[0] != '.' && token[0] != '~') {
+        return;
+    }
+
+    char completed[CONSOLE_LINE_MAX];
+    if (!ramfs_complete_path(token, completed, sizeof(completed))) {
+        return;
+    }
+
+    if (fn_streq(token, completed)) {
+        return;
+    }
+
+    char new_line[CONSOLE_LINE_MAX];
+    size_t out_pos = 0;
+
+    for (size_t i = 0; i < token_start && out_pos + 1 < sizeof(new_line); i++) {
+        new_line[out_pos++] = g_console_line[i];
+    }
+    for (size_t i = 0; completed[i] != '\0' && out_pos + 1 < sizeof(new_line); i++) {
+        new_line[out_pos++] = completed[i];
+    }
+    new_line[out_pos] = '\0';
+
+    console_replace_current_line(new_line);
+}
+
 static void console_submit_line() {
     console_cursor_hide();
     g_console_line[g_console_line_len] = '\0';
@@ -310,6 +371,10 @@ void console_handle_backspace() {
     print_backspace();
     g_console_history_nav = 0xFF;
     console_cursor_refresh_after_output();
+}
+
+void console_handle_tab() {
+    console_try_tab_complete_path_token();
 }
 
 void console_history_prev() {

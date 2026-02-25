@@ -81,25 +81,6 @@ The shell currently operates on a built-in in-memory tree (seeded at boot). Exam
 └── tmp/
 ```
 
-## Shell Commands (Current)
-
-- `help`
-- `clear` / `cls`
-- `echo ...`
-- `about`
-- `version`
-- `time`
-- `ticks`
-- `uptime`
-- `pwd`
-- `ls [path]`
-- `tree [path]`
-- `cd [path]`
-- `mkdir <path>`
-- `touch <path>`
-- `mv <src> <dst>`
-- `panic_de` / `panic_gp` / `panic_pf` (exception test commands)
-
 ## Build Requirements
 
 - Docker

@@ -24,6 +24,7 @@ struct FsNode {
 static struct FsNode g_fs_nodes[FS_MAX_NODES];
 static int16_t g_fs_root = -1;
 static int16_t g_fs_cwd = -1;
+static int16_t g_fs_home = -1;
 
 static void fs_zero_all() {
     for (size_t i = 0; i < FS_MAX_NODES; i++) {
@@ -294,6 +295,49 @@ static uint8_t fs_build_path(int16_t node, char* out, size_t out_max) {
     return 1;
 }
 
+static uint8_t fs_build_prompt_path(char* out, size_t out_max) {
+    char full[PATH_BUF_MAX];
+    char home[PATH_BUF_MAX];
+
+    if (!fs_build_path(g_fs_cwd, full, sizeof(full))) {
+        return 0;
+    }
+    if (g_fs_home >= 0 && fs_build_path(g_fs_home, home, sizeof(home))) {
+        if (fn_streq(full, home)) {
+            if (out_max < 2) {
+                return 0;
+            }
+            out[0] = '~';
+            out[1] = '\0';
+            return 1;
+        }
+
+        if (fn_strstarts(full, home) && full[fn_strlen(home)] == '/') {
+            size_t pos = 0;
+            if (out_max < 2) {
+                return 0;
+            }
+            out[pos++] = '~';
+            for (size_t i = fn_strlen(home); full[i] != '\0'; i++) {
+                if (pos + 1 >= out_max) {
+                    out[out_max - 1] = '\0';
+                    return 0;
+                }
+                out[pos++] = full[i];
+            }
+            out[pos] = '\0';
+            return 1;
+        }
+    }
+
+    fn_strcopy(out, full, out_max);
+    return 1;
+}
+
+static uint8_t fs_starts_with(const char* s, const char* prefix) {
+    return fn_strstarts(s, prefix);
+}
+
 static void fs_print_ls_dir(int16_t dir) {
     int16_t child = g_fs_nodes[dir].first_child;
     if (child < 0) {
@@ -343,14 +387,116 @@ static void fs_seed_demo_tree() {
     fs_create_child(g_fs_root, "bin", FS_NODE_DIR);
     fs_create_child(g_fs_root, "tmp", FS_NODE_DIR);
     int16_t home = fs_create_child(g_fs_root, "home", FS_NODE_DIR);
-    fs_create_child(home, "user", FS_NODE_DIR);
+    g_fs_home = fs_create_child(home, "admin", FS_NODE_DIR);
 }
 
 void ramfs_init() {
     fs_zero_all();
     g_fs_root = fs_alloc_node(FS_NODE_DIR, "", -1);
     g_fs_cwd = g_fs_root;
+    g_fs_home = -1;
     fs_seed_demo_tree();
+    if (g_fs_home >= 0) {
+        g_fs_cwd = g_fs_home;
+    }
+}
+
+void ramfs_get_prompt_cwd(char* out, size_t out_max) {
+    if (out_max == 0) {
+        return;
+    }
+    if (!fs_build_prompt_path(out, out_max)) {
+        out[0] = '~';
+        if (out_max > 1) {
+            out[1] = '\0';
+        }
+    }
+}
+
+unsigned char ramfs_complete_path(const char* input_path, char* out_path, size_t out_max) {
+    if (input_path == NULL || out_path == NULL || out_max == 0) {
+        return 0;
+    }
+
+    size_t in_len = fn_strlen(input_path);
+    if (in_len == 0) {
+        return 0;
+    }
+
+    size_t split = in_len;
+    while (split > 0 && input_path[split - 1] != '/') {
+        split--;
+    }
+
+    char prefix[FS_NAME_MAX];
+    size_t prefix_len = in_len - split;
+    if (prefix_len >= FS_NAME_MAX) {
+        return 0;
+    }
+    for (size_t i = 0; i < prefix_len; i++) {
+        prefix[i] = input_path[split + i];
+    }
+    prefix[prefix_len] = '\0';
+
+    int16_t parent = -1;
+    if (split == 0) {
+        parent = (input_path[0] == '/') ? g_fs_root : g_fs_cwd;
+    } else {
+        char parent_path[PATH_BUF_MAX];
+        if (split >= sizeof(parent_path)) {
+            return 0;
+        }
+        for (size_t i = 0; i < split; i++) {
+            parent_path[i] = input_path[i];
+        }
+        parent_path[split] = '\0';
+        if (!fs_resolve_path(parent_path, &parent)) {
+            return 0;
+        }
+    }
+
+    if (parent < 0 || g_fs_nodes[parent].type != FS_NODE_DIR) {
+        return 0;
+    }
+
+    int16_t match = -1;
+    uint8_t match_count = 0;
+    int16_t child = g_fs_nodes[parent].first_child;
+    while (child >= 0) {
+        if (fs_starts_with(g_fs_nodes[child].name, prefix)) {
+            match = child;
+            match_count++;
+            if (match_count > 1) {
+                return 0;
+            }
+        }
+        child = g_fs_nodes[child].next_sibling;
+    }
+
+    if (match_count != 1 || match < 0) {
+        return 0;
+    }
+
+    size_t out_pos = 0;
+    for (size_t i = 0; i < split; i++) {
+        if (out_pos + 1 >= out_max) {
+            out_path[out_max - 1] = '\0';
+            return 0;
+        }
+        out_path[out_pos++] = input_path[i];
+    }
+
+    const char* name = g_fs_nodes[match].name;
+    for (size_t i = 0; name[i] != '\0'; i++) {
+        if (out_pos + 1 >= out_max) {
+            out_path[out_max - 1] = '\0';
+            return 0;
+        }
+        out_path[out_pos++] = name[i];
+    }
+
+    out_path[out_pos] = '\0';
+    return 1;
 }
 
 void ramfs_cmd_pwd() {
