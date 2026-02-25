@@ -28,6 +28,7 @@
 #define KEY_CODE_J 0x24
 #define KEY_CODE_K 0x25
 #define KEY_CODE_L 0x26
+#define KEY_CODE_SEMICOLON_US 0x27
 #define KEY_CODE_M 0x32
 #define KEY_CODE_N 0x31
 #define KEY_CODE_O 0x18
@@ -111,12 +112,13 @@ static char keyboard_to_ascii_be(uint16_t code, bool shift, bool altgr, bool cap
         case KEY_CODE_J: return apply_case('j', shift, caps_lock);
         case KEY_CODE_K: return apply_case('k', shift, caps_lock);
         case KEY_CODE_L: return apply_case('l', shift, caps_lock);
-        case KEY_CODE_M: return apply_case('m', shift, caps_lock);
+        case KEY_CODE_SEMICOLON_US: return apply_case('m', shift, caps_lock);
         case KEY_CODE_X: return apply_case('x', shift, caps_lock);
         case KEY_CODE_C: return apply_case('c', shift, caps_lock);
         case KEY_CODE_V: return apply_case('v', shift, caps_lock);
         case KEY_CODE_B: return apply_case('b', shift, caps_lock);
         case KEY_CODE_N: return apply_case('n', shift, caps_lock);
+        case KEY_CODE_M: return shift ? '?' : ','; // US M key is punctuation on Belgian AZERTY
 
         // Number row (Belgian: digits with Shift)
         case KEY_CODE_1: return shift ? '1' : '&';
