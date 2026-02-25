@@ -6,6 +6,7 @@
 
 #define KEY_CODE_1 0x02
 #define KEY_CODE_BACKSPACE 0x0E
+#define KEY_CODE_LCTRL 0x1D
 #define KEY_CODE_2 0x03
 #define KEY_CODE_3 0x04
 #define KEY_CODE_4 0x05
@@ -48,6 +49,7 @@
 #define KEY_CODE_RSHIFT 0x36
 #define KEY_CODE_CAPSLOCK 0x3A
 #define KEY_CODE_ALTGR 0xE038
+#define KEY_CODE_RCTRL 0xE01D
 #define KEY_CODE_ARROW_UP 0xE048
 #define KEY_CODE_ARROW_DOWN 0xE050
 #define KEY_CODE_SPACE 0x39
@@ -57,6 +59,8 @@
 
 static bool g_shift_left = false;
 static bool g_shift_right = false;
+static bool g_ctrl_left = false;
+static bool g_ctrl_right = false;
 static bool g_altgr = false;
 static bool g_caps_lock = false;
 
@@ -154,6 +158,16 @@ static void handle_keyboard_input(struct KeyboardEvent event) {
         return;
     }
 
+    if (event.code == KEY_CODE_LCTRL) {
+        g_ctrl_left = (event.type == KEYBOARD_EVENT_TYPE_MAKE);
+        return;
+    }
+
+    if (event.code == KEY_CODE_RCTRL) {
+        g_ctrl_right = (event.type == KEYBOARD_EVENT_TYPE_MAKE);
+        return;
+    }
+
     if (event.code == KEY_CODE_CAPSLOCK && event.type == KEYBOARD_EVENT_TYPE_MAKE) {
         g_caps_lock = !g_caps_lock;
         return;
@@ -179,8 +193,14 @@ static void handle_keyboard_input(struct KeyboardEvent event) {
     }
 
     bool shift = g_shift_left || g_shift_right;
+    bool ctrl = g_ctrl_left || g_ctrl_right;
     char ch = keyboard_to_ascii_be(event.code, shift, g_altgr, g_caps_lock);
     if (ch == 0) {
+        return;
+    }
+
+    if (ctrl && (ch == 'l' || ch == 'L')) {
+        console_clear_screen();
         return;
     }
 
