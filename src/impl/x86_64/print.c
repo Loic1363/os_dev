@@ -83,6 +83,17 @@ void print_clear_row_at(size_t row_index, uint8_t foreground, uint8_t background
     }
 }
 
+void print_write_char_at(size_t row_index, size_t col_index, char character, uint8_t foreground, uint8_t background) {
+    if (row_index >= NUM_ROWS || col_index >= NUM_COLS) {
+        return;
+    }
+
+    buffer[col_index + NUM_COLS * row_index] = (struct Char) {
+        .character = (uint8_t) character,
+        .color = make_color(foreground, background),
+    };
+}
+
 void print_write_str_at(size_t row_index, size_t col_index, char* string, uint8_t foreground, uint8_t background) {
     if (row_index >= NUM_ROWS || col_index >= NUM_COLS) {
         return;
@@ -100,6 +111,29 @@ void print_write_str_at(size_t row_index, size_t col_index, char* string, uint8_
             .color = local_color,
         };
     }
+}
+
+void print_get_cursor(size_t* row_index, size_t* col_index) {
+    if (row_index != NULL) {
+        *row_index = row;
+    }
+
+    if (col_index != NULL) {
+        *col_index = col;
+    }
+}
+
+void print_set_cursor(size_t row_index, size_t col_index) {
+    if (row_index >= NUM_ROWS) {
+        row_index = NUM_ROWS - 1;
+    }
+
+    if (col_index >= NUM_COLS) {
+        col_index = NUM_COLS - 1;
+    }
+
+    row = row_index;
+    col = col_index;
 }
 
 void print_char(char character) {
