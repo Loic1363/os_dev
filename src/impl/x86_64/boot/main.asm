@@ -1,24 +1,24 @@
-global start ; rendre "start" visible pour tous les programmes et notamment pour linker.ld (aussi non c'est local)
-extern long_mode_start ; dire que long_mode_start est défini ailleurs, donc dans un autre fichier il y aura global long_mode_start"
+global start ; make "start" visible to the linker (otherwise it is local)
+extern long_mode_start ; declared in another file (exported there as global long_mode_start)
 ; ============================================================
 section .text
-bits 32 ; on spécifie le mode en 32 bits
-start: ; dans le linker je spécifie que "start:" est l'entrée de mon programme via ENTRY(start) 
+bits 32 ; assemble in 32-bit mode
+start: ; linker entry point via ENTRY(start)
 
-    mov esp, stack_top ; on initialise la stack - ESP = Extended Stack Pointer, le registre de pile en 32 bits.
-; met donc la valeur de stack_top dans 
+    mov esp, stack_top ; initialize the stack (ESP = 32-bit stack pointer)
+; load stack_top into ESP
 
 ; ============================================================
-;   Layout mémoire .bss (pile + tables de pages)
-;   La pile x86 descend (ESP--) à chaque push/call
+;   .bss memory layout (stack + page tables)
+;   The x86 stack grows downward (ESP--) on each push/call
 ;
-;   Adresses hautes
+;   High addresses
 ;           |
 ;           v
 ;
 ;        +-------------------------+  <- stack_top (ESP initial)
-;        |         PILE            |
-;        |   (16 KB réservés)      |
+;        |         STACK           |
+;        |   (16 KB reserved)      |
 ;        |     push / call ↓       |
 ;        |                         |
 ;        |                         |
@@ -30,9 +30,9 @@ start: ; dans le linker je spécifie que "start:" est l'entrée de mon programme
 ;        |      page_table_l4      |
 ;        +-------------------------+
 ;
-;   Adresses basses
+;   Low addresses
 ; ============================================================
-; ici on appelle les fonctions définies plus tot (start: est comme un 'main')
+; call setup/check routines defined below (start behaves like a boot main)
     call check_multiboot 
     call check_cpuid
     call check_long_mode
@@ -42,14 +42,12 @@ start: ; dans le linker je spécifie que "start:" est l'entrée de mon programme
 
 ; ============================================================
 
-    lgdt   [gdt64.pointer] ; lgdt = load global descriptor table -> elle prend la valeur de gdt64.pointer en mémoire et la met dans le registre interne GDTR
+    lgdt   [gdt64.pointer] ; load the GDT pointer from memory into GDTR
 
-; gdt  = global descriptor table (contient les données sous forme de table)
-; gtdr = global descriptor Table Register (registre interne et contient GDTR.base   = adresse où se trouve la GDT en mémoire
-;                                                                       GDTR.limit  = taille de la GDT - 1)
-
-
-
+; GDT  = Global Descriptor Table (stores segment descriptors in table form)
+; GDTR = Global Descriptor Table Register (internal register containing:
+;                                          GDTR.base   = address of the GDT in memory
+;                                          GDTR.limit  = size of the GDT - 1)
 
 
 
@@ -57,7 +55,10 @@ start: ; dans le linker je spécifie que "start:" est l'entrée de mon programme
 
 
 
-    jmp gdt64.code_segment:long_mode_start ; et maintenant on peut aller en long mode (64 bits)
+
+
+
+    jmp gdt64.code_segment:long_mode_start ; switch to long mode (64-bit)
 
     hlt ; halt CPU for no more instructions
 ; ============================================================
@@ -132,7 +133,7 @@ setup_page_tables:
     ret
 
 enable_paging:
-    ;pass page table location to cpu
+    ; pass page table location to CPU
     mov eax, page_table_l4
     mov cr3, eax
 

@@ -6,6 +6,8 @@
 #define PORT_RTC_DATA 0x71
 
 #define RTC_REGISTER_SECONDS 0x00
+#define RTC_REGISTER_MINUTES 0x02
+#define RTC_REGISTER_HOURS 0x04
 #define RTC_REGISTER_STATUS_A 0x0A
 #define RTC_REGISTER_STATUS_B 0x0B
 
@@ -26,21 +28,38 @@ uint8_t rtc_is_bcd() {
     return !(rtc_read_register(RTC_REGISTER_STATUS_B) & RTC_DATA_MODE);
 }
 
-uint8_t rtc_seconds() {
-    uint8_t seconds_a;
-    uint8_t seconds_b;
+static uint8_t rtc_bcd_to_bin(uint8_t value) {
+    return (value & 0x0F) + ((value & 0xF0) >> 4) * 10;
+}
+
+static uint8_t rtc_read_stable(uint8_t reg) {
+    uint8_t value_a;
+    uint8_t value_b;
     uint8_t is_bcd = rtc_is_bcd();
 
     do {
         rtc_wait();
-        seconds_a = rtc_read_register(RTC_REGISTER_SECONDS);
+        value_a = rtc_read_register(reg);
         rtc_wait();
-        seconds_b = rtc_read_register(RTC_REGISTER_SECONDS);
-    } while (seconds_a != seconds_b);
+        value_b = rtc_read_register(reg);
+    } while (value_a != value_b);
 
     if (is_bcd) {
-        return (seconds_b & 0x0F) + ((seconds_b & 0xF0) >> 4) * 10;
+        return rtc_bcd_to_bin(value_b);
     }
 
-    return seconds_b;
+    return value_b;
+}
+
+uint8_t rtc_hours() {
+    uint8_t hours = rtc_read_stable(RTC_REGISTER_HOURS);
+    return hours & 0x7F;
+}
+
+uint8_t rtc_minutes() {
+    return rtc_read_stable(RTC_REGISTER_MINUTES);
+}
+
+uint8_t rtc_seconds() {
+    return rtc_read_stable(RTC_REGISTER_SECONDS);
 }

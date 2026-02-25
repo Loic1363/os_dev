@@ -1,9 +1,11 @@
 #include "print.h"
 #include "bool.h"
 #include "keyboard.h"
+#include "x86_64/pit.h"
 #include "x86_64/rtc.h"
 
 #define KEY_CODE_1 0x02
+#define KEY_CODE_BACKSPACE 0x0E
 #define KEY_CODE_2 0x03
 #define KEY_CODE_3 0x04
 #define KEY_CODE_4 0x05
@@ -47,14 +49,48 @@
 #define KEY_CODE_ALTGR 0xE038
 #define KEY_CODE_SPACE 0x39
 #define KEY_CODE_ENTER 0x1C
+#define PIT_TEST_LIMIT_SECONDS 10
+#define CONSOLE_LINE_MAX 64
 
 static bool g_shift_left = false;
 static bool g_shift_right = false;
 static bool g_altgr = false;
 static bool g_caps_lock = false;
+static bool g_console_enabled = false;
+static char g_console_line[CONSOLE_LINE_MAX];
+static uint8_t g_console_line_len = 0;
 
 static bool is_alpha(char c) {
     return c >= 'a' && c <= 'z';
+}
+
+static bool streq(const char* a, const char* b) {
+    for (size_t i = 0; ; i++) {
+        if (a[i] != b[i]) {
+            return false;
+        }
+
+        if (a[i] == '\0') {
+            return true;
+        }
+    }
+}
+
+static bool strstarts(const char* str, const char* prefix) {
+    for (size_t i = 0; ; i++) {
+        if (prefix[i] == '\0') {
+            return true;
+        }
+
+        if (str[i] != prefix[i]) {
+            return false;
+        }
+    }
+}
+
+static void print_2digits(uint8_t value) {
+    print_char((char) ('0' + ((value / 10) % 10)));
+    print_char((char) ('0' + (value % 10)));
 }
 
 static char apply_case(char c, bool shift, bool caps_lock) {
@@ -130,6 +166,71 @@ char to_ascii(uint16_t code, bool shift, bool altgr, bool caps_lock) {
     }
 }
 
+static void console_print_prompt() {
+    print_set_color(PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
+    print_str("\n> ");
+}
+
+static void console_reset_line() {
+    g_console_line_len = 0;
+    g_console_line[0] = '\0';
+}
+
+static void console_submit_line() {
+    g_console_line[g_console_line_len] = '\0';
+
+    print_set_color(PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
+    print_char('\n');
+
+    if (g_console_line_len == 0) {
+        console_print_prompt();
+        return;
+    }
+
+    if (streq(g_console_line, "help")) {
+        print_str("Commands: help clear ticks time echo\n");
+    } else if (streq(g_console_line, "clear")) {
+        print_clear();
+    } else if (streq(g_console_line, "ticks")) {
+        print_str("ticks=");
+        print_uint64_dec(pit_ticks());
+        print_char('\n');
+    } else if (streq(g_console_line, "time")) {
+        uint8_t h = rtc_hours();
+        uint8_t m = rtc_minutes();
+        uint8_t s = rtc_seconds();
+        print_str("time=");
+        print_2digits(h);
+        print_char(':');
+        print_2digits(m);
+        print_char(':');
+        print_2digits(s);
+        print_char('\n');
+    } else if (strstarts(g_console_line, "echo ")) {
+        print_str(g_console_line + 5);
+        print_char('\n');
+    } else if (streq(g_console_line, "echo")) {
+        print_char('\n');
+    } else {
+        print_str("Unknown command: ");
+        print_str(g_console_line);
+        print_char('\n');
+    }
+
+    console_reset_line();
+    console_print_prompt();
+}
+
+static void console_push_char(char ch) {
+    if (g_console_line_len >= (CONSOLE_LINE_MAX - 1)) {
+        return;
+    }
+
+    g_console_line[g_console_line_len++] = ch;
+    g_console_line[g_console_line_len] = '\0';
+    print_char(ch);
+}
+
 void handle_input(struct KeyboardEvent event) {
     if (event.code == KEY_CODE_LSHIFT) {
         g_shift_left = (event.type == KEYBOARD_EVENT_TYPE_MAKE);
@@ -152,14 +253,41 @@ void handle_input(struct KeyboardEvent event) {
     }
 
     if (event.type == KEYBOARD_EVENT_TYPE_MAKE) {
+        if (event.code == KEY_CODE_BACKSPACE) {
+            if (g_console_enabled) {
+                if (g_console_line_len > 0) {
+                    g_console_line_len--;
+                    g_console_line[g_console_line_len] = '\0';
+                    print_set_color(PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
+                    print_backspace();
+                }
+            } else {
+                print_set_color(PRINT_COLOR_BLUE, PRINT_COLOR_WHITE);
+                print_backspace();
+            }
+            return;
+        }
+
         bool shift = g_shift_left || g_shift_right;
         char ch = to_ascii(event.code, shift, g_altgr, g_caps_lock);
         if (ch == 0) {
             return;
         }
 
-        print_set_color(PRINT_COLOR_BLUE, PRINT_COLOR_WHITE);
-        print_char(ch);
+        if (g_console_enabled) {
+            print_set_color(PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
+        } else {
+            print_set_color(PRINT_COLOR_BLUE, PRINT_COLOR_WHITE);
+        }
+        if (g_console_enabled) {
+            if (ch == '\n') {
+                console_submit_line();
+            } else {
+                console_push_char(ch);
+            }
+        } else {
+            print_char(ch);
+        }
     } else if (event.type == KEYBOARD_EVENT_TYPE_BREAK) {
     }
 }
@@ -189,6 +317,7 @@ void kernel_main() {
 
     keyboard_init();
     keyboard_set_handler(handle_input);
+    pit_init(100);
 
     for (uint64_t i = 0; i < 100; i++) {
         print_uint64_dec(i);
@@ -211,7 +340,30 @@ void kernel_main() {
     }
 
     print_str(" - Seconds loop disabled.\n");
+    g_console_enabled = true;
+    console_reset_line();
+    print_set_color(PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
+    print_str("Console ready. Type 'help'.");
+    console_print_prompt();
 
+    uint64_t last_reported_second = 0;
+    bool pit_test_done = false;
     while (1) {
+        uint64_t ticks = pit_ticks();
+        uint64_t seconds = ticks / 100;
+
+        if (!pit_test_done && seconds != last_reported_second) {
+            last_reported_second = seconds;
+            print_set_color(PRINT_COLOR_LIGHT_GREEN, PRINT_COLOR_BLACK);
+            print_str(" [PIT ");
+            print_uint64_dec(seconds);
+            print_str("s]");
+
+            if (seconds >= PIT_TEST_LIMIT_SECONDS) {
+                pit_test_done = true;
+                print_set_color(PRINT_COLOR_YELLOW, PRINT_COLOR_BLACK);
+                print_str(" [PIT test done]");
+            }
+        }
     }
 }

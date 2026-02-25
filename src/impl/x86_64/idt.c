@@ -35,9 +35,12 @@ struct IdtPtr {
 struct IdtEntry idt[256] __attribute__((aligned(16)));
 struct IdtPtr idt_ptr;
 
+static uint8_t idt_is_initialized = 0;
+void (*idt_handler_timer_user)();
 void (*idt_handler_keyboard_user)();
 
 extern void idt_load(struct IdtPtr* idt_ptr);
+extern void idt_handler_timer_wrapped();
 extern void idt_handler_keyboard_wrapped();
 
 void idt_set_entry(uint8_t vector, uint64_t isr_addr, uint16_t selector, uint8_t type) {
@@ -60,17 +63,35 @@ void idt_handler_keyboard() {
     pic_eoi_master();
 }
 
+void idt_handler_timer() {
+    if (idt_handler_timer_user != NULL) {
+        idt_handler_timer_user();
+    }
+
+    pic_eoi_master();
+}
+
 void idt_init() {
+    if (idt_is_initialized) {
+        return;
+    }
+
     pic_remap();
 
     idt_ptr.limit = (sizeof(struct IdtEntry) * 256) - 1;
     idt_ptr.base = (uint64_t) &idt;
 
+    idt_set_entry(IDT_IRQ0_TIMER, (uint64_t) idt_handler_timer_wrapped, GDT_SELECTOR_CS_KERNEL, IDT_ENTRY_TYPE_INTERRUPT);
     idt_set_entry(IDT_IRQ1_KEYBOARD, (uint64_t) idt_handler_keyboard_wrapped, GDT_SELECTOR_CS_KERNEL, IDT_ENTRY_TYPE_INTERRUPT);
 
     idt_load(&idt_ptr);
 
     asm volatile("sti");
+    idt_is_initialized = 1;
+}
+
+void idt_set_handler_timer(void (*handler)()) {
+    idt_handler_timer_user = handler;
 }
 
 void idt_set_handler_keyboard(void (*handler)()) {

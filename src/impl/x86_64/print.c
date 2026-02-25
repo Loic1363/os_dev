@@ -48,6 +48,18 @@ void print_newline() {
     clear_row(NUM_ROWS - 1);
 }
 
+void print_backspace() {
+    if (col == 0) {
+        return;
+    }
+
+    col--;
+    buffer[col + NUM_COLS * row] = (struct Char) {
+        .character = ' ',
+        .color = color,
+    };
+}
+
 void print_char(char character) {
     if (character == '\n') {
         print_newline();
