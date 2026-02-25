@@ -116,7 +116,7 @@ char to_ascii(uint16_t code, bool shift, bool altgr, bool caps_lock) {
         case KEY_CODE_1: return shift ? '1' : '&';
         case KEY_CODE_2: return shift ? '2' : 'e'; // 'é' fallback in ASCII-only text mode
         case KEY_CODE_3: return shift ? '3' : '"';
-        case KEY_CODE_4: return shift ? '4' : '\'';
+        case KEY_CODE_4: return shift ? '4' : 39;
         case KEY_CODE_5: return shift ? '5' : '(';
         case KEY_CODE_6: return shift ? '6' : 0;   // '§' not ASCII
         case KEY_CODE_7: return shift ? '7' : 'e'; // 'è' fallback
@@ -164,9 +164,27 @@ void handle_input(struct KeyboardEvent event) {
     }
 }
 
-void kernel_main() {
+void print_boot_splash() {
     print_clear();
-    print_set_color(PRINT_COLOR_YELLOW, PRINT_COLOR_BLACK);
+    print_set_color(PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
+    print_str("\n");
+    print_str("                                                     .-'''-.        \n");
+    print_str("                                                    '   _    \\      \n");
+    print_str("_________   _...._      .--._________   _...._       /   /` '.   \\     \n");
+    print_str("\\        |.'      '-.   |__|\\        |.'      '-.   .   |     \\  '     \n");
+    print_str(" \\        .'```'.    '. .--. \\        .'```'.    '. |   '      |  '    \n");
+    print_str("  \\      |       \\     \\|  |  \\      |       \\     \\\\    \\     / /     \n");
+    print_str("   |     |        |    ||  |   |     |        |    | `.   ` ..' / _    \n");
+    print_str("   |      \\      /    . |  |   |      \\      /    .     '-...-'`.' |   \n");
+    print_str("   |     |\\`'-.-'   .'  |  |   |     |\\`'-.-'   .'             .   | / \n");
+    print_str("   |     | '-....-'`    |__|   |     | '-....-'`             .'.'| |// \n");
+    print_str("  .'     '.                   .'     '.                    .'.'.-'  /  \n");
+    print_str("'-----------'               '-----------'                  .'   \\_.'   \n");
+    print_str("\n");
+}
+
+void kernel_main() {
+    print_boot_splash();
     print_str("Welcome to our 64-bit kernel!");
 
     keyboard_init();
