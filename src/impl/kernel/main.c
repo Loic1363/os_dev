@@ -1,4 +1,5 @@
 #include "bool.h"
+#include "apps/nat.h"
 #include "console.h"
 #include "keyboard.h"
 #include "print.h"
@@ -56,6 +57,8 @@
 #define KEY_CODE_RCTRL 0xE01D
 #define KEY_CODE_ARROW_UP 0xE048
 #define KEY_CODE_ARROW_DOWN 0xE050
+#define KEY_CODE_ARROW_LEFT 0xE04B
+#define KEY_CODE_ARROW_RIGHT 0xE04D
 #define KEY_CODE_SPACE 0x39
 #define KEY_CODE_ENTER 0x1C
 
@@ -184,6 +187,37 @@ static void handle_keyboard_input(struct KeyboardEvent event) {
         return;
     }
 
+    if (nat_is_active()) {
+        if (event.code == KEY_CODE_BACKSPACE) {
+            nat_handle_backspace();
+            return;
+        }
+        if (event.code == KEY_CODE_TAB) {
+            nat_handle_tab();
+            return;
+        }
+        if (event.code == KEY_CODE_ENTER) {
+            nat_handle_enter();
+            return;
+        }
+        if (event.code == KEY_CODE_ARROW_UP) {
+            nat_handle_arrow_up();
+            return;
+        }
+        if (event.code == KEY_CODE_ARROW_DOWN) {
+            nat_handle_arrow_down();
+            return;
+        }
+        if (event.code == KEY_CODE_ARROW_LEFT) {
+            nat_handle_arrow_left();
+            return;
+        }
+        if (event.code == KEY_CODE_ARROW_RIGHT) {
+            nat_handle_arrow_right();
+            return;
+        }
+    }
+
     if (event.code == KEY_CODE_BACKSPACE) {
         console_handle_backspace();
         return;
@@ -207,6 +241,19 @@ static void handle_keyboard_input(struct KeyboardEvent event) {
     bool ctrl = g_ctrl_left || g_ctrl_right;
     char ch = keyboard_to_ascii_be(event.code, shift, g_altgr, g_caps_lock);
     if (ch == 0) {
+        return;
+    }
+
+    if (nat_is_active()) {
+        if (ctrl && (ch == 's' || ch == 'S')) {
+            nat_handle_ctrl('s');
+            return;
+        }
+        if (ctrl && (ch == 'q' || ch == 'Q')) {
+            nat_handle_ctrl('q');
+            return;
+        }
+        nat_handle_char(ch);
         return;
     }
 
@@ -249,6 +296,10 @@ void kernel_main() {
     console_init();
 
     while (1) {
-        console_tick();
+        if (nat_is_active()) {
+            nat_tick();
+        } else {
+            console_tick();
+        }
     }
 }

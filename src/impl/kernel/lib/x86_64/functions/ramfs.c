@@ -5,6 +5,7 @@
 #define FS_MAX_NODES 128
 #define FS_NAME_MAX 16
 #define PATH_BUF_MAX 96
+#define FS_FILE_CONTENT_MAX 2048
 
 enum {
     FS_NODE_UNUSED = 0,
@@ -19,6 +20,8 @@ struct FsNode {
     int16_t first_child;
     int16_t next_sibling;
     char name[FS_NAME_MAX];
+    uint16_t content_len;
+    char content[FS_FILE_CONTENT_MAX];
 };
 
 static struct FsNode g_fs_nodes[FS_MAX_NODES];
@@ -34,6 +37,8 @@ static void fs_zero_all() {
         g_fs_nodes[i].first_child = -1;
         g_fs_nodes[i].next_sibling = -1;
         g_fs_nodes[i].name[0] = '\0';
+        g_fs_nodes[i].content_len = 0;
+        g_fs_nodes[i].content[0] = '\0';
     }
 }
 
@@ -46,6 +51,8 @@ static int16_t fs_alloc_node(uint8_t type, const char* name, int16_t parent) {
             g_fs_nodes[i].first_child = -1;
             g_fs_nodes[i].next_sibling = -1;
             fn_strcopy(g_fs_nodes[i].name, name, FS_NAME_MAX);
+            g_fs_nodes[i].content_len = 0;
+            g_fs_nodes[i].content[0] = '\0';
             return i;
         }
     }
@@ -381,9 +388,9 @@ static void fs_seed_demo_tree() {
     int16_t lib = fs_create_child(g_fs_root, "lib", FS_NODE_DIR);
     int16_t x86 = fs_create_child(lib, "x86_64", FS_NODE_DIR);
     int16_t funcs = fs_create_child(x86, "functions", FS_NODE_DIR);
-    fs_create_child(funcs, "print", FS_NODE_FILE);
-    fs_create_child(funcs, "port", FS_NODE_FILE);
-    fs_create_child(funcs, "idt", FS_NODE_FILE);
+    fs_create_child(funcs, "print.c", FS_NODE_FILE);
+    fs_create_child(funcs, "port.c", FS_NODE_FILE);
+    fs_create_child(funcs, "idt.c", FS_NODE_FILE);
     fs_create_child(g_fs_root, "bin", FS_NODE_DIR);
     fs_create_child(g_fs_root, "tmp", FS_NODE_DIR);
     int16_t home = fs_create_child(g_fs_root, "home", FS_NODE_DIR);
@@ -496,6 +503,74 @@ unsigned char ramfs_complete_path(const char* input_path, char* out_path, size_t
     }
 
     out_path[out_pos] = '\0';
+    return 1;
+}
+
+unsigned char ramfs_open_or_create_file(const char* path) {
+    int16_t node;
+    if (path == NULL || path[0] == '\0') {
+        return 0;
+    }
+
+    if (fs_resolve_path(path, &node)) {
+        return (g_fs_nodes[node].type == FS_NODE_FILE) ? 1 : 0;
+    }
+
+    int16_t parent;
+    char name[FS_NAME_MAX];
+    if (!fs_resolve_parent_for_create(path, &parent, name)) {
+        return 0;
+    }
+
+    return fs_create_child(parent, name, FS_NODE_FILE) >= 0;
+}
+
+unsigned char ramfs_read_file(const char* path, char* out, size_t out_max, size_t* out_len) {
+    int16_t node;
+    if (path == NULL || out == NULL || out_max == 0) {
+        return 0;
+    }
+    if (!fs_resolve_path(path, &node)) {
+        return 0;
+    }
+    if (g_fs_nodes[node].type != FS_NODE_FILE) {
+        return 0;
+    }
+
+    size_t n = g_fs_nodes[node].content_len;
+    if (n >= out_max) {
+        n = out_max - 1;
+    }
+    for (size_t i = 0; i < n; i++) {
+        out[i] = g_fs_nodes[node].content[i];
+    }
+    out[n] = '\0';
+    if (out_len != NULL) {
+        *out_len = n;
+    }
+    return 1;
+}
+
+unsigned char ramfs_write_file(const char* path, const char* data, size_t len) {
+    int16_t node;
+    if (path == NULL || data == NULL) {
+        return 0;
+    }
+    if (!fs_resolve_path(path, &node)) {
+        return 0;
+    }
+    if (g_fs_nodes[node].type != FS_NODE_FILE) {
+        return 0;
+    }
+
+    if (len >= FS_FILE_CONTENT_MAX) {
+        len = FS_FILE_CONTENT_MAX - 1;
+    }
+    for (size_t i = 0; i < len; i++) {
+        g_fs_nodes[node].content[i] = data[i];
+    }
+    g_fs_nodes[node].content[len] = '\0';
+    g_fs_nodes[node].content_len = (uint16_t) len;
     return 1;
 }
 

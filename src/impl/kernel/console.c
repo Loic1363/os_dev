@@ -1,4 +1,5 @@
 #include "bool.h"
+#include "apps/nat.h"
 #include "console.h"
 #include "print.h"
 #include "x86_64/pit.h"
@@ -234,7 +235,29 @@ static void console_try_tab_complete_path_token() {
         return;
     }
 
-    if (token[0] != '/' && token[0] != '.' && token[0] != '~') {
+    // Command-aware completion: path-like tokens are always eligible.
+    // Also allow plain names for commands that operate on cwd entries (e.g. nat, cd, ls).
+    uint8_t allow_plain_name = 0;
+    {
+        size_t first_len = 0;
+        while (first_len < token_start && g_console_line[first_len] != ' ') {
+            first_len++;
+        }
+        char first_cmd[CMD_TOKEN_MAX];
+        size_t copy_len = (first_len < (CMD_TOKEN_MAX - 1)) ? first_len : (CMD_TOKEN_MAX - 1);
+        for (size_t i = 0; i < copy_len; i++) {
+            first_cmd[i] = g_console_line[i];
+        }
+        first_cmd[copy_len] = '\0';
+
+        if (fn_streq(first_cmd, "cd") || fn_streq(first_cmd, "ls") || fn_streq(first_cmd, "tree") ||
+            fn_streq(first_cmd, "nat") || fn_streq(first_cmd, "touch") || fn_streq(first_cmd, "mkdir") ||
+            fn_streq(first_cmd, "mv")) {
+            allow_plain_name = 1;
+        }
+    }
+
+    if (!allow_plain_name && token[0] != '/' && token[0] != '.' && token[0] != '~') {
         return;
     }
 
@@ -287,7 +310,7 @@ static void console_submit_line() {
     uint8_t has_arg2 = fn_next_token(g_console_line, &pos, arg2, sizeof(arg2));
 
     if (fn_streq(cmd, "help")) {
-        print_str("Commands: help clear cls ticks time uptime echo about version panic_de panic_gp panic_pf pwd ls tree cd mkdir touch mv\n");
+        print_str("Commands: help clear cls ticks time uptime echo about version panic_de panic_gp panic_pf pwd ls tree cd mkdir touch mv nat\n");
     } else if (fn_streq(cmd, "clear") || fn_streq(cmd, "cls")) {
         print_clear();
         console_render_status_line();
@@ -330,6 +353,15 @@ static void console_submit_line() {
         ramfs_cmd_touch(has_arg1 ? arg1 : "");
     } else if (fn_streq(cmd, "mv")) {
         ramfs_cmd_mv(has_arg1 ? arg1 : "", has_arg2 ? arg2 : "");
+    } else if (fn_streq(cmd, "nat")) {
+        if (!has_arg1) {
+            print_str("nat: missing file operand\n");
+        } else if (!nat_open(arg1)) {
+            print_str("nat: failed to open editor\n");
+        } else {
+            console_reset_line();
+            return;
+        }
     } else {
         print_str("Unknown command: ");
         print_str(g_console_line);
