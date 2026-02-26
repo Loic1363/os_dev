@@ -1,9 +1,11 @@
 #include "bool.h"
 #include "apps/nat.h"
 #include "console.h"
+#include "kmalloc.h"
 #include "keyboard.h"
 #include "print.h"
 #include "x86_64/pit.h"
+#include "x86_64/serial.h"
 #include "x86_64/vga_text.h"
 
 #define KEY_CODE_1 0x02
@@ -292,15 +294,23 @@ void kernel_main() {
     // Disabled for now: proper 80x50 VGA text mode also requires loading
     // an 8x8 font. Changing scanline height alone cuts glyphs in half.
     // vga_text_set_mode_80x50();
+    serial_init();
+    serial_write_str("[boot] serial init ok\n");
+    kmalloc_init();
+    serial_write_str("[boot] kmalloc init ok\n");
+
     print_boot_splash();
     print_set_color(PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
     print_str("Welcome to our 64-bit kernel!\n");
 
     keyboard_init();
     keyboard_set_handler(handle_keyboard_input);
+    serial_write_str("[boot] keyboard init ok\n");
     pit_init(PIT_HZ);
+    serial_write_str("[boot] pit init ok\n");
 
     console_init();
+    serial_write_str("[boot] console init ok\n");
 
     while (1) {
         if (nat_is_active()) {

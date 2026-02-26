@@ -3,6 +3,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+struct RamfsStats {
+    uint16_t total_nodes;
+    uint16_t used_nodes;
+    uint16_t dir_nodes;
+    uint16_t file_nodes;
+    uint32_t file_bytes;
+};
+
 void ramfs_init();
 void ramfs_get_prompt_cwd(char* out, size_t out_max);
 unsigned char ramfs_complete_path(const char* input_path, char* out_path, size_t out_max);
@@ -20,4 +28,10 @@ void ramfs_cmd_cp(const char* src_path, const char* dst_path);
 void ramfs_cmd_cat(const char* path);
 void ramfs_cmd_rm(const char* path);
 void ramfs_cmd_rmdir(const char* path);
+void ramfs_cmd_rm_recursive(const char* path);
 void ramfs_cmd_stat(const char* path);
+void ramfs_cmd_write(const char* path, const char* text);
+void ramfs_cmd_append(const char* path, const char* text);
+void ramfs_cmd_grep(const char* needle, const char* path);
+void ramfs_cmd_cp_recursive(const char* src_path, const char* dst_path);
+void ramfs_get_stats(struct RamfsStats* out_stats);

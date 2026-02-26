@@ -1,7 +1,9 @@
 #include "bool.h"
 #include "apps/nat.h"
 #include "console.h"
+#include "kmalloc.h"
 #include "print.h"
+#include "x86_64/serial.h"
 #include "x86_64/pit.h"
 #include "x86_64/rtc.h"
 #include "lib/x86_64/functions/ramfs.h"
@@ -27,6 +29,7 @@ static const struct ConsoleCommandHelp g_command_help[] = {
     {"clear", "clear", "Clear the console screen"},
     {"cls", "cls", "Alias of clear"},
     {"ticks", "ticks", "Show raw PIT tick counter"},
+    {"sysinfo", "sysinfo", "Show kernel/runtime stats"},
     {"time", "time", "Show RTC time"},
     {"uptime", "uptime", "Show uptime based on PIT ticks"},
     {"echo", "echo <text>", "Print text"},
@@ -44,6 +47,9 @@ static const struct ConsoleCommandHelp g_command_help[] = {
     {"mv", "mv <src> <dst>", "Move or rename file/directory"},
     {"cp", "cp <src> <dst>", "Copy file"},
     {"cat", "cat <file>", "Print file contents"},
+    {"write", "write <file> <text>", "Overwrite file contents"},
+    {"append", "append <file> <text>", "Append text to file"},
+    {"grep", "grep <pattern> <file>", "Search text in file"},
     {"rm", "rm <file>", "Remove file"},
     {"rmdir", "rmdir <dir>", "Remove empty directory"},
     {"stat", "stat [path]", "Show node metadata"},
@@ -216,11 +222,58 @@ static void console_print_time() {
 }
 
 static void console_print_about() {
-    print_str("PipOS - hobby x86_64 kernel\n");
+    print_str("PipOS - x86_64 kernel project\n");
 }
 
 static void console_print_version() {
     print_str("version=0.1-dev\n");
+}
+
+static void console_print_sysinfo() {
+    struct KmallocStats kstats;
+    struct RamfsStats rstats;
+
+    kmalloc_get_stats(&kstats);
+    ramfs_get_stats(&rstats);
+
+    print_str("kernel=PipOS\n");
+    print_str("ticks=");
+    print_uint64_dec(pit_ticks());
+    print_char('\n');
+
+    print_str("serial=");
+    print_str(serial_is_ready() ? "ready\n" : "off\n");
+
+    print_str("kmalloc.heap=");
+    print_uint64_dec(kstats.heap_size);
+    print_char('\n');
+    print_str("kmalloc.used=");
+    print_uint64_dec(kstats.used);
+    print_char('\n');
+    print_str("kmalloc.free=");
+    print_uint64_dec(kstats.free_bytes);
+    print_char('\n');
+    print_str("kmalloc.allocs=");
+    print_uint64_dec(kstats.allocations);
+    print_char('\n');
+    print_str("kmalloc.failed=");
+    print_uint64_dec(kstats.failed_allocations);
+    print_char('\n');
+
+    print_str("ramfs.nodes=");
+    print_uint64_dec(rstats.used_nodes);
+    print_char('/');
+    print_uint64_dec(rstats.total_nodes);
+    print_char('\n');
+    print_str("ramfs.dirs=");
+    print_uint64_dec(rstats.dir_nodes);
+    print_char('\n');
+    print_str("ramfs.files=");
+    print_uint64_dec(rstats.file_nodes);
+    print_char('\n');
+    print_str("ramfs.bytes=");
+    print_uint64_dec(rstats.file_bytes);
+    print_char('\n');
 }
 
 static void console_trigger_panic_de() {
@@ -396,15 +449,21 @@ static void console_submit_line() {
 
     console_history_store_current();
     g_console_history_nav = 0xFF;
+    serial_write_str("[shell] ");
+    serial_write_str(g_console_line);
+    serial_write_str("\n");
 
     char cmd[CMD_TOKEN_MAX];
     char arg1[CONSOLE_LINE_MAX];
     char arg2[CONSOLE_LINE_MAX];
+    char arg3[CONSOLE_LINE_MAX];
     size_t pos = 0;
     fn_next_token(g_console_line, &pos, cmd, sizeof(cmd));
     size_t after_cmd_pos = pos;
     uint8_t has_arg1 = fn_next_token(g_console_line, &pos, arg1, sizeof(arg1));
+    size_t after_arg1_pos = pos;
     uint8_t has_arg2 = fn_next_token(g_console_line, &pos, arg2, sizeof(arg2));
+    uint8_t has_arg3 = fn_next_token(g_console_line, &pos, arg3, sizeof(arg3));
 
     if (fn_streq(cmd, "help")) {
         if (has_arg1) {
@@ -419,6 +478,8 @@ static void console_submit_line() {
         print_str("ticks=");
         print_uint64_dec(pit_ticks());
         print_char('\n');
+    } else if (fn_streq(cmd, "sysinfo")) {
+        console_print_sysinfo();
     } else if (fn_streq(cmd, "time")) {
         console_print_time();
     } else if (fn_streq(cmd, "uptime")) {
@@ -455,11 +516,27 @@ static void console_submit_line() {
     } else if (fn_streq(cmd, "mv")) {
         ramfs_cmd_mv(has_arg1 ? arg1 : "", has_arg2 ? arg2 : "");
     } else if (fn_streq(cmd, "cp")) {
-        ramfs_cmd_cp(has_arg1 ? arg1 : "", has_arg2 ? arg2 : "");
+        if (has_arg1 && fn_streq(arg1, "-r")) {
+            ramfs_cmd_cp_recursive(has_arg2 ? arg2 : "", has_arg3 ? arg3 : "");
+        } else {
+            ramfs_cmd_cp(has_arg1 ? arg1 : "", has_arg2 ? arg2 : "");
+        }
     } else if (fn_streq(cmd, "cat")) {
         ramfs_cmd_cat(has_arg1 ? arg1 : "");
+    } else if (fn_streq(cmd, "write")) {
+        const char* text = has_arg1 ? fn_rest_after_spaces(g_console_line, after_arg1_pos) : "";
+        ramfs_cmd_write(has_arg1 ? arg1 : "", text);
+    } else if (fn_streq(cmd, "append")) {
+        const char* text = has_arg1 ? fn_rest_after_spaces(g_console_line, after_arg1_pos) : "";
+        ramfs_cmd_append(has_arg1 ? arg1 : "", text);
+    } else if (fn_streq(cmd, "grep")) {
+        ramfs_cmd_grep(has_arg1 ? arg1 : "", has_arg2 ? arg2 : "");
     } else if (fn_streq(cmd, "rm")) {
-        ramfs_cmd_rm(has_arg1 ? arg1 : "");
+        if (has_arg1 && fn_streq(arg1, "-r")) {
+            ramfs_cmd_rm_recursive(has_arg2 ? arg2 : "");
+        } else {
+            ramfs_cmd_rm(has_arg1 ? arg1 : "");
+        }
     } else if (fn_streq(cmd, "rmdir")) {
         ramfs_cmd_rmdir(has_arg1 ? arg1 : "");
     } else if (fn_streq(cmd, "stat")) {

@@ -9,11 +9,11 @@ It is written mostly in C, with a small amount of x86_64 assembly where low-leve
 
 ## Features
 
-The current kernel boots into a usable text shell with a status bar, command history, `Tab` completion, and a RAM-backed filesystem. It also includes basic interrupt handling (PIT timer and PS/2 keyboard), RTC time access, panic handlers for common CPU exceptions (`#DE`, `#GP`, `#PF`), and a custom Nano-like editor called `nat`.
+The current kernel boots into a usable text shell with a status bar, command history, `Tab` completion, and a RAM-backed filesystem. It includes interrupt handling (PIT timer and PS/2 keyboard), RTC time access, panic handlers for common CPU exceptions (`#DE`, `#GP`, `#PF`), COM1 serial logging, a minimal `kmalloc` allocator, and a custom Nano-like editor called `nat`.
 
-The shell already supports file and directory work in the RAM FS (`ls`, `cd`, `mkdir`, `touch`, `mv`, `cp`, `rm`, `rmdir`, `cat`, `stat`), plus debug/system commands like `time`, `uptime`, `ticks`, `history`, and exception trigger commands.
+The shell supports file and directory work in the RAM FS (`ls`, `cd`, `mkdir`, `touch`, `mv`, `cp`, `rm`, `rmdir`, `cat`, `stat`) and text-oriented commands (`write`, `append`, `grep`). Recursive operations are available through `cp -r` and `rm -r`. Debug/system commands include `time`, `uptime`, `ticks`, `sysinfo`, `history`, and exception trigger commands.
 
-`nat` is designed with a PipOS identity but follows familiar Nano-style controls (`Ctrl+O` save, `Ctrl+X` quit, cursor movement, line cut/paste, refresh, etc.).
+`nat` is designed with a PipOS identity but follows familiar Nano-style controls (`Ctrl+O` save, `Ctrl+X` quit, cursor movement, line cut/paste, refresh, search with `Ctrl+W`, etc.).
 
 ## Project Layout
 
@@ -29,6 +29,7 @@ The shell already supports file and directory work in the RAM FS (`ls`, `cd`, `m
 │   │   ├── kernel/
 │   │   │   ├── main.c
 │   │   │   ├── console.c
+│   │   │   ├── kmalloc.c
 │   │   │   ├── apps/
 │   │   │   │   └── nat.c
 │   │   │   └── lib/x86_64/functions/
@@ -44,11 +45,13 @@ The shell already supports file and directory work in the RAM FS (`ls`, `cd`, `m
 │   │       ├── print.c
 │   │       ├── ps2.c
 │   │       ├── rtc.c
+│   │       ├── serial.c
 │   │       └── ...
 │   └── intf/
 │       ├── apps/
 │       │   └── nat.h
 │       ├── console.h
+│       ├── kmalloc.h
 │       ├── print.h
 │       └── lib/x86_64/functions/
 │           ├── ramfs.h
@@ -102,11 +105,11 @@ qemu-system-x86_64 -cdrom dist/x86_64/kernel.iso -m 256M -display sdl
 
 ## Notes
 
-The filesystem is currently RAM-only (no disk persistence yet), and `nat` edits files inside that in-kernel RAM FS. The keyboard layout is Belgian AZERTY with ASCII-oriented output for VGA text mode.
+The filesystem is currently RAM-only (no disk persistence yet), and `nat` edits files inside that in-kernel RAM FS. The keyboard layout is Belgian AZERTY with ASCII-oriented output for VGA text mode. COM1 logs are emitted during boot and shell command execution for easier debugging.
 
 ## Roadmap
 
-Next steps include real search in `nat`, better RAM FS tooling (`write`, `append`, `grep`, recursive operations), serial COM1 logging, and eventually a disk-backed filesystem (FAT read-only first).
+Next steps include stronger memory management (free lists/paging), process and syscall foundations, and eventually a disk-backed filesystem (FAT read-only first).
 
 ## License
 

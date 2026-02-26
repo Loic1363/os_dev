@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build PipOS build environment image
+        run: docker build buildenv -t pipos-buildenv-ci
+
+      - name: Build kernel and ISO
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/root/env" \
+            pipos-buildenv-ci \
+            bash -lc "make clean && make build-x86_64"
+
+      - name: Upload ISO artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipos-kernel-iso
+          path: dist/x86_64/kernel.iso
+          if-no-files-found: error

@@ -26,6 +26,9 @@ static size_t g_nat_cursor_row = NAT_TEXT_ROW_START;
 static size_t g_nat_cursor_col = 0;
 static char g_nat_clipboard[NAT_BUF_MAX];
 static size_t g_nat_clipboard_len = 0;
+static uint8_t g_nat_search_mode = 0;
+static char g_nat_search_query[64];
+static size_t g_nat_search_query_len = 0;
 
 static size_t nat_cols() {
     return print_get_cols();
@@ -63,6 +66,75 @@ static void nat_set_status(const char* msg) {
 
 static void nat_recompute_view_for_cursor();
 static void nat_render();
+static size_t nat_line_number_of_cursor();
+
+static uint8_t nat_matches_at(size_t pos, const char* needle, size_t needle_len) {
+    if (needle_len == 0 || pos + needle_len > g_nat_len) {
+        return 0;
+    }
+    for (size_t i = 0; i < needle_len; i++) {
+        if (g_nat_buf[pos + i] != needle[i]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static uint8_t nat_find_next(const char* needle, size_t needle_len, size_t start_pos, size_t* out_pos) {
+    if (needle_len == 0 || g_nat_len == 0) {
+        return 0;
+    }
+    if (start_pos > g_nat_len) {
+        start_pos = g_nat_len;
+    }
+
+    for (size_t pos = start_pos; pos + needle_len <= g_nat_len; pos++) {
+        if (nat_matches_at(pos, needle, needle_len)) {
+            *out_pos = pos;
+            return 1;
+        }
+    }
+    for (size_t pos = 0; pos + needle_len <= start_pos && pos + needle_len <= g_nat_len; pos++) {
+        if (nat_matches_at(pos, needle, needle_len)) {
+            *out_pos = pos;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void nat_search_begin() {
+    g_nat_search_mode = 1;
+    if (g_nat_search_query_len >= sizeof(g_nat_search_query)) {
+        g_nat_search_query_len = 0;
+        g_nat_search_query[0] = '\0';
+    }
+    nat_set_status("Search mode");
+}
+
+static void nat_search_cancel() {
+    g_nat_search_mode = 0;
+    nat_set_status("Search cancelled");
+}
+
+static void nat_search_run() {
+    if (g_nat_search_query_len == 0) {
+        nat_set_status("Search: empty query");
+        return;
+    }
+
+    size_t found_pos;
+    size_t start = (g_nat_cursor < g_nat_len) ? (g_nat_cursor + 1) : 0;
+    if (!nat_find_next(g_nat_search_query, g_nat_search_query_len, start, &found_pos)) {
+        nat_set_status("Search: no match");
+        return;
+    }
+
+    g_nat_cursor = found_pos;
+    g_nat_view_line = nat_line_number_of_cursor();
+    g_nat_search_mode = 0;
+    nat_set_status("Search: match");
+}
 
 static size_t nat_line_start_from_index(size_t index) {
     if (index > g_nat_len) {
@@ -159,7 +231,21 @@ static void nat_render_help() {
 static void nat_render_status_msg() {
     size_t row = nat_msg_row();
     print_clear_row_at(row, PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
-    print_write_str_at(row, 0, g_nat_status_msg, PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
+    if (g_nat_search_mode) {
+        char line[80];
+        size_t pos = 0;
+        const char* prefix = "Search: ";
+        for (size_t i = 0; prefix[i] != '\0' && pos + 1 < sizeof(line); i++) {
+            line[pos++] = prefix[i];
+        }
+        for (size_t i = 0; i < g_nat_search_query_len && pos + 1 < sizeof(line); i++) {
+            line[pos++] = g_nat_search_query[i];
+        }
+        line[pos] = '\0';
+        print_write_str_at(row, 0, line, PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
+    } else {
+        print_write_str_at(row, 0, g_nat_status_msg, PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
+    }
 }
 
 static void nat_render_text() {
@@ -431,6 +517,9 @@ uint8_t nat_open(const char* path) {
     g_nat_dirty = 0;
     g_nat_cursor_visible = 1;
     g_nat_last_blink_tick = pit_ticks();
+    g_nat_search_mode = 0;
+    g_nat_search_query_len = 0;
+    g_nat_search_query[0] = '\0';
     nat_set_status("Opened");
 
     size_t read_len = 0;
@@ -448,6 +537,18 @@ uint8_t nat_open(const char* path) {
 
 void nat_handle_char(char ch) {
     if (!g_nat_active) return;
+    if (g_nat_search_mode) {
+        if (g_nat_search_query_len + 1 >= sizeof(g_nat_search_query)) {
+            nat_set_status("Search query too long");
+        } else {
+            g_nat_search_query[g_nat_search_query_len++] = ch;
+            g_nat_search_query[g_nat_search_query_len] = '\0';
+        }
+        g_nat_cursor_visible = 1;
+        g_nat_last_blink_tick = pit_ticks();
+        nat_render();
+        return;
+    }
     nat_insert_char(ch);
     nat_set_status("Editing");
     g_nat_cursor_visible = 1;
@@ -457,6 +558,16 @@ void nat_handle_char(char ch) {
 
 void nat_handle_backspace() {
     if (!g_nat_active) return;
+    if (g_nat_search_mode) {
+        if (g_nat_search_query_len > 0) {
+            g_nat_search_query_len--;
+            g_nat_search_query[g_nat_search_query_len] = '\0';
+        }
+        g_nat_cursor_visible = 1;
+        g_nat_last_blink_tick = pit_ticks();
+        nat_render();
+        return;
+    }
     nat_delete_before_cursor();
     nat_set_status("Editing");
     g_nat_cursor_visible = 1;
@@ -465,11 +576,19 @@ void nat_handle_backspace() {
 }
 
 void nat_handle_enter() {
+    if (g_nat_search_mode) {
+        nat_search_run();
+        g_nat_cursor_visible = 1;
+        g_nat_last_blink_tick = pit_ticks();
+        nat_render();
+        return;
+    }
     nat_handle_char('\n');
 }
 
 void nat_handle_tab() {
     if (!g_nat_active) return;
+    if (g_nat_search_mode) return;
     for (uint8_t i = 0; i < 4; i++) {
         nat_insert_char(' ');
     }
@@ -595,6 +714,13 @@ void nat_handle_ctrl(uint8_t key_lower) {
     }
 
     if (key_lower == 'g') {
+        if (g_nat_search_mode) {
+            nat_search_cancel();
+            g_nat_cursor_visible = 1;
+            g_nat_last_blink_tick = pit_ticks();
+            nat_render();
+            return;
+        }
         nat_set_status("PipOS NAT: ^O WriteOut, ^X Exit, ^K Cut, ^U Uncut");
         g_nat_cursor_visible = 1;
         g_nat_last_blink_tick = pit_ticks();
@@ -611,7 +737,11 @@ void nat_handle_ctrl(uint8_t key_lower) {
     }
 
     if (key_lower == 'w') {
-        nat_set_status("Search not implemented yet");
+        if (g_nat_search_mode) {
+            nat_search_run();
+        } else {
+            nat_search_begin();
+        }
         g_nat_cursor_visible = 1;
         g_nat_last_blink_tick = pit_ticks();
         nat_render();

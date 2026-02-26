@@ -284,6 +284,87 @@ static uint16_t fs_dir_child_count(int16_t dir) {
     return count;
 }
 
+static void fs_copy_file_content(int16_t dst, int16_t src) {
+    if (dst < 0 || src < 0) {
+        return;
+    }
+    g_fs_nodes[dst].content_len = g_fs_nodes[src].content_len;
+    for (size_t i = 0; i < g_fs_nodes[src].content_len; i++) {
+        g_fs_nodes[dst].content[i] = g_fs_nodes[src].content[i];
+    }
+    g_fs_nodes[dst].content[g_fs_nodes[src].content_len] = '\0';
+}
+
+static uint8_t fs_remove_node_recursive_internal(int16_t node) {
+    if (node < 0 || node == g_fs_root || node == g_fs_home) {
+        return 0;
+    }
+    if (fs_is_ancestor(node, g_fs_cwd)) {
+        return 0;
+    }
+
+    while (g_fs_nodes[node].first_child >= 0) {
+        int16_t child = g_fs_nodes[node].first_child;
+        if (!fs_remove_node_recursive_internal(child)) {
+            return 0;
+        }
+    }
+
+    if (!fs_detach_child(node)) {
+        return 0;
+    }
+    fs_free_node_shallow(node);
+    return 1;
+}
+
+static int16_t fs_clone_subtree_into(int16_t src, int16_t dst_parent, const char* dst_name) {
+    if (src < 0 || dst_parent < 0) {
+        return -1;
+    }
+
+    int16_t created = fs_create_child(dst_parent, dst_name, g_fs_nodes[src].type);
+    if (created < 0) {
+        return -1;
+    }
+
+    if (g_fs_nodes[src].type == FS_NODE_FILE) {
+        fs_copy_file_content(created, src);
+        return created;
+    }
+
+    int16_t child = g_fs_nodes[src].first_child;
+    while (child >= 0) {
+        int16_t next = g_fs_nodes[child].next_sibling;
+        if (fs_clone_subtree_into(child, created, g_fs_nodes[child].name) < 0) {
+            fs_remove_node_recursive_internal(created);
+            return -1;
+        }
+        child = next;
+    }
+    return created;
+}
+
+static void fs_collect_stats(struct RamfsStats* out_stats) {
+    out_stats->total_nodes = FS_MAX_NODES;
+    out_stats->used_nodes = 0;
+    out_stats->dir_nodes = 0;
+    out_stats->file_nodes = 0;
+    out_stats->file_bytes = 0;
+
+    for (size_t i = 0; i < FS_MAX_NODES; i++) {
+        if (!g_fs_nodes[i].used) {
+            continue;
+        }
+        out_stats->used_nodes++;
+        if (g_fs_nodes[i].type == FS_NODE_DIR) {
+            out_stats->dir_nodes++;
+        } else if (g_fs_nodes[i].type == FS_NODE_FILE) {
+            out_stats->file_nodes++;
+            out_stats->file_bytes += g_fs_nodes[i].content_len;
+        }
+    }
+}
+
 static uint8_t fs_build_path(int16_t node, char* out, size_t out_max) {
     if (out_max < 2 || node < 0) {
         return 0;
@@ -784,22 +865,14 @@ void ramfs_cmd_cp(const char* src_path, const char* dst_path) {
                 print_str("cp: destination create failed\n");
                 return;
             }
-            g_fs_nodes[existing].content_len = g_fs_nodes[src].content_len;
-            for (size_t i = 0; i < g_fs_nodes[src].content_len; i++) {
-                g_fs_nodes[existing].content[i] = g_fs_nodes[src].content[i];
-            }
-            g_fs_nodes[existing].content[g_fs_nodes[src].content_len] = '\0';
+            fs_copy_file_content(existing, src);
             return;
         }
         if (g_fs_nodes[dst_node].type != FS_NODE_FILE) {
             print_str("cp: invalid destination\n");
             return;
         }
-        g_fs_nodes[dst_node].content_len = g_fs_nodes[src].content_len;
-        for (size_t i = 0; i < g_fs_nodes[src].content_len; i++) {
-            g_fs_nodes[dst_node].content[i] = g_fs_nodes[src].content[i];
-        }
-        g_fs_nodes[dst_node].content[g_fs_nodes[src].content_len] = '\0';
+        fs_copy_file_content(dst_node, src);
         return;
     }
 
@@ -814,11 +887,7 @@ void ramfs_cmd_cp(const char* src_path, const char* dst_path) {
         print_str("cp: destination create failed\n");
         return;
     }
-    g_fs_nodes[created].content_len = g_fs_nodes[src].content_len;
-    for (size_t i = 0; i < g_fs_nodes[src].content_len; i++) {
-        g_fs_nodes[created].content[i] = g_fs_nodes[src].content[i];
-    }
-    g_fs_nodes[created].content[g_fs_nodes[src].content_len] = '\0';
+    fs_copy_file_content(created, src);
 }
 
 void ramfs_cmd_cat(const char* path) {
@@ -903,6 +972,29 @@ void ramfs_cmd_rmdir(const char* path) {
     fs_free_node_shallow(node);
 }
 
+void ramfs_cmd_rm_recursive(const char* path) {
+    int16_t node;
+    if (path == NULL || path[0] == '\0') {
+        print_str("rm: missing operand\n");
+        return;
+    }
+    if (!fs_resolve_path(path, &node)) {
+        print_str("rm: path not found\n");
+        return;
+    }
+    if (node == g_fs_root) {
+        print_str("rm: cannot remove root\n");
+        return;
+    }
+    if (node == g_fs_home) {
+        print_str("rm: cannot remove home\n");
+        return;
+    }
+    if (!fs_remove_node_recursive_internal(node)) {
+        print_str("rm: recursive remove failed\n");
+    }
+}
+
 void ramfs_cmd_stat(const char* path) {
     int16_t node;
     char full_path[PATH_BUF_MAX];
@@ -937,4 +1029,174 @@ void ramfs_cmd_stat(const char* path) {
         print_uint64_dec(g_fs_nodes[node].content_len);
         print_char('\n');
     }
+}
+
+void ramfs_cmd_write(const char* path, const char* text) {
+    if (path == NULL || path[0] == '\0') {
+        print_str("write: missing file operand\n");
+        return;
+    }
+    if (text == NULL) {
+        text = "";
+    }
+    if (!ramfs_open_or_create_file(path)) {
+        print_str("write: create/open failed\n");
+        return;
+    }
+    if (!ramfs_write_file(path, text, fn_strlen(text))) {
+        print_str("write: failed\n");
+    }
+}
+
+void ramfs_cmd_append(const char* path, const char* text) {
+    int16_t node;
+    if (path == NULL || path[0] == '\0') {
+        print_str("append: missing file operand\n");
+        return;
+    }
+    if (text == NULL) {
+        text = "";
+    }
+    if (!ramfs_open_or_create_file(path)) {
+        print_str("append: create/open failed\n");
+        return;
+    }
+    if (!fs_resolve_path(path, &node) || g_fs_nodes[node].type != FS_NODE_FILE) {
+        print_str("append: invalid file\n");
+        return;
+    }
+
+    size_t add_len = fn_strlen(text);
+    size_t old_len = g_fs_nodes[node].content_len;
+    size_t new_len = old_len + add_len;
+    if (new_len >= FS_FILE_CONTENT_MAX) {
+        new_len = FS_FILE_CONTENT_MAX - 1;
+    }
+    size_t writable = (new_len > old_len) ? (new_len - old_len) : 0;
+    for (size_t i = 0; i < writable; i++) {
+        g_fs_nodes[node].content[old_len + i] = text[i];
+    }
+    g_fs_nodes[node].content[new_len] = '\0';
+    g_fs_nodes[node].content_len = (uint16_t) new_len;
+}
+
+void ramfs_cmd_grep(const char* needle, const char* path) {
+    int16_t node;
+    if (needle == NULL || needle[0] == '\0') {
+        print_str("grep: missing pattern\n");
+        return;
+    }
+    if (path == NULL || path[0] == '\0') {
+        print_str("grep: missing file operand\n");
+        return;
+    }
+    if (!fs_resolve_path(path, &node)) {
+        print_str("grep: file not found\n");
+        return;
+    }
+    if (g_fs_nodes[node].type != FS_NODE_FILE) {
+        print_str("grep: not a file\n");
+        return;
+    }
+
+    const char* data = g_fs_nodes[node].content;
+    size_t len = g_fs_nodes[node].content_len;
+    size_t nlen = fn_strlen(needle);
+    uint8_t matched_any = 0;
+    uint64_t line_no = 1;
+    size_t line_start = 0;
+
+    if (nlen == 0) {
+        print_str("grep: empty pattern\n");
+        return;
+    }
+
+    for (size_t i = 0; i <= len; i++) {
+        if (i == len || data[i] == '\n') {
+            size_t line_end = i;
+            uint8_t found = 0;
+            if (line_end >= line_start && (line_end - line_start) >= nlen) {
+                for (size_t j = line_start; j + nlen <= line_end; j++) {
+                    size_t k = 0;
+                    while (k < nlen && data[j + k] == needle[k]) {
+                        k++;
+                    }
+                    if (k == nlen) {
+                        found = 1;
+                        break;
+                    }
+                }
+            }
+            if (found) {
+                matched_any = 1;
+                print_uint64_dec(line_no);
+                print_str(": ");
+                for (size_t j = line_start; j < line_end; j++) {
+                    print_char(data[j]);
+                }
+                print_char('\n');
+            }
+            line_no++;
+            line_start = i + 1;
+        }
+    }
+
+    if (!matched_any) {
+        print_str("grep: no match\n");
+    }
+}
+
+void ramfs_cmd_cp_recursive(const char* src_path, const char* dst_path) {
+    int16_t src;
+    if (src_path == NULL || dst_path == NULL || src_path[0] == '\0' || dst_path[0] == '\0') {
+        print_str("cp: missing operand\n");
+        return;
+    }
+    if (!fs_resolve_path(src_path, &src)) {
+        print_str("cp: source not found\n");
+        return;
+    }
+
+    if (g_fs_nodes[src].type == FS_NODE_FILE) {
+        ramfs_cmd_cp(src_path, dst_path);
+        return;
+    }
+
+    int16_t dst_existing;
+    int16_t parent;
+    char name[FS_NAME_MAX];
+
+    if (fs_resolve_path(dst_path, &dst_existing)) {
+        if (g_fs_nodes[dst_existing].type != FS_NODE_DIR) {
+            print_str("cp: destination exists and is not a directory\n");
+            return;
+        }
+        if (fs_is_ancestor(src, dst_existing)) {
+            print_str("cp: cannot copy directory into itself\n");
+            return;
+        }
+        if (fs_clone_subtree_into(src, dst_existing, g_fs_nodes[src].name) < 0) {
+            print_str("cp: recursive copy failed\n");
+        }
+        return;
+    }
+
+    if (!fs_resolve_parent_for_create(dst_path, &parent, name)) {
+        print_str("cp: invalid destination path\n");
+        return;
+    }
+    if (fs_is_ancestor(src, parent)) {
+        print_str("cp: cannot copy directory into itself\n");
+        return;
+    }
+    if (fs_clone_subtree_into(src, parent, name) < 0) {
+        print_str("cp: recursive copy failed\n");
+    }
+}
+
+void ramfs_get_stats(struct RamfsStats* out_stats) {
+    if (out_stats == NULL) {
+        return;
+    }
+    fs_collect_stats(out_stats);
 }
