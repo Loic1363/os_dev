@@ -2,7 +2,7 @@
 
 ![PipOS loading screen](ext_src/pic/loading_screen.png)
 
-PipOS is a small x86_64 hobby kernel with a text-mode interface, a built-in shell, a RAM-backed filesystem, and a custom text editor (`nat`).
+PipOS is a small x86_64 kernel project with a text-mode interface, a built-in shell, a RAM-backed filesystem, and a custom text editor (`nat`).
 It is written mostly in C, with a small amount of x86_64 assembly where low-level entry points are required.
 
 ## Features
