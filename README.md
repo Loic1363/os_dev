@@ -1,9 +1,11 @@
 # PipOS
 
-![PipOS loading screen](ext_src/pic/loading_screen.png)
-
 PipOS is a small x86_64 kernel project with a text-mode interface, a built-in shell, a RAM-backed filesystem, and a custom text editor (`nat`).
 It is written mostly in C, with a small amount of x86_64 assembly where low-level entry points are required.
+
+<p align="center">
+  <img src="ext_src/pic/loading_screen.png" alt="PipOS loading screen">
+</p>
 
 ## Features
 
