@@ -16,6 +16,41 @@
 #define CURSOR_BLINK_TICKS 25
 #define CMD_TOKEN_MAX 32
 
+struct ConsoleCommandHelp {
+    const char* name;
+    const char* usage;
+    const char* desc;
+};
+
+static const struct ConsoleCommandHelp g_command_help[] = {
+    {"help", "help [command]", "Show command list or command help"},
+    {"clear", "clear", "Clear the console screen"},
+    {"cls", "cls", "Alias of clear"},
+    {"ticks", "ticks", "Show raw PIT tick counter"},
+    {"time", "time", "Show RTC time"},
+    {"uptime", "uptime", "Show uptime based on PIT ticks"},
+    {"echo", "echo <text>", "Print text"},
+    {"about", "about", "Show PipOS info"},
+    {"version", "version", "Show kernel version"},
+    {"panic_de", "panic_de", "Trigger divide error exception"},
+    {"panic_gp", "panic_gp", "Trigger general protection fault"},
+    {"panic_pf", "panic_pf", "Trigger page fault"},
+    {"pwd", "pwd", "Print current directory"},
+    {"ls", "ls [path]", "List directory contents"},
+    {"tree", "tree [path]", "Print directory tree"},
+    {"cd", "cd [path]", "Change current directory"},
+    {"mkdir", "mkdir <path>", "Create directory"},
+    {"touch", "touch <path>", "Create file"},
+    {"mv", "mv <src> <dst>", "Move or rename file/directory"},
+    {"cp", "cp <src> <dst>", "Copy file"},
+    {"cat", "cat <file>", "Print file contents"},
+    {"rm", "rm <file>", "Remove file"},
+    {"rmdir", "rmdir <dir>", "Remove empty directory"},
+    {"stat", "stat [path]", "Show node metadata"},
+    {"history", "history", "Show command history"},
+    {"nat", "nat <file>", "Open PipOS NAT editor"},
+};
+
 static char g_console_line[CONSOLE_LINE_MAX];
 static uint8_t g_console_line_len = 0;
 static char g_console_history[CONSOLE_HISTORY_MAX][CONSOLE_LINE_MAX];
@@ -29,6 +64,53 @@ static uint64_t g_last_cursor_blink_tick = 0;
 static uint8_t g_cursor_visible = 0;
 static size_t g_cursor_row = 1;
 static size_t g_cursor_col = 0;
+
+static const struct ConsoleCommandHelp* console_find_command_help(const char* name) {
+    for (size_t i = 0; i < (sizeof(g_command_help) / sizeof(g_command_help[0])); i++) {
+        if (fn_streq(g_command_help[i].name, name)) {
+            return &g_command_help[i];
+        }
+    }
+    return NULL;
+}
+
+static void console_print_help_all() {
+    print_str("Commands:");
+    for (size_t i = 0; i < (sizeof(g_command_help) / sizeof(g_command_help[0])); i++) {
+        print_char(' ');
+        print_str(g_command_help[i].name);
+    }
+    print_char('\n');
+}
+
+static void console_print_help_one(const char* name) {
+    const struct ConsoleCommandHelp* info = console_find_command_help(name);
+    if (info == NULL) {
+        print_str("help: unknown command: ");
+        print_str(name);
+        print_char('\n');
+        return;
+    }
+    print_str(info->usage);
+    print_char('\n');
+    print_str(info->desc);
+    print_char('\n');
+}
+
+static void console_print_history() {
+    if (g_console_history_count == 0) {
+        print_str("(history empty)\n");
+        return;
+    }
+    uint8_t oldest_slot = (uint8_t) ((g_console_history_next_slot + CONSOLE_HISTORY_MAX - g_console_history_count) % CONSOLE_HISTORY_MAX);
+    for (uint8_t i = 0; i < g_console_history_count; i++) {
+        uint8_t slot = (uint8_t) ((oldest_slot + i) % CONSOLE_HISTORY_MAX);
+        print_uint64_dec(i + 1);
+        print_str(": ");
+        print_str(g_console_history[slot]);
+        print_char('\n');
+    }
+}
 
 static void buf_append_char(char* buf, size_t* len, char ch) {
     if (*len >= (STATUS_BUF_MAX - 1)) {
@@ -284,6 +366,40 @@ static void console_try_tab_complete_path_token() {
     console_replace_current_line(new_line);
 }
 
+static void console_try_tab_complete_command() {
+    if (g_console_line_len == 0) {
+        return;
+    }
+    for (uint8_t i = 0; i < g_console_line_len; i++) {
+        if (g_console_line[i] == ' ') {
+            return;
+        }
+    }
+
+    char prefix[CMD_TOKEN_MAX];
+    size_t copy_len = (g_console_line_len < (CMD_TOKEN_MAX - 1)) ? g_console_line_len : (CMD_TOKEN_MAX - 1);
+    for (size_t i = 0; i < copy_len; i++) {
+        prefix[i] = g_console_line[i];
+    }
+    prefix[copy_len] = '\0';
+
+    const char* match = NULL;
+    uint8_t matches = 0;
+    for (size_t i = 0; i < (sizeof(g_command_help) / sizeof(g_command_help[0])); i++) {
+        if (fn_strstarts(g_command_help[i].name, prefix)) {
+            match = g_command_help[i].name;
+            matches++;
+            if (matches > 1) {
+                return;
+            }
+        }
+    }
+    if (matches != 1 || match == NULL || fn_streq(match, prefix)) {
+        return;
+    }
+    console_replace_current_line(match);
+}
+
 static void console_submit_line() {
     console_cursor_hide();
     g_console_line[g_console_line_len] = '\0';
@@ -310,7 +426,11 @@ static void console_submit_line() {
     uint8_t has_arg2 = fn_next_token(g_console_line, &pos, arg2, sizeof(arg2));
 
     if (fn_streq(cmd, "help")) {
-        print_str("Commands: help clear cls ticks time uptime echo about version panic_de panic_gp panic_pf pwd ls tree cd mkdir touch mv nat\n");
+        if (has_arg1) {
+            console_print_help_one(arg1);
+        } else {
+            console_print_help_all();
+        }
     } else if (fn_streq(cmd, "clear") || fn_streq(cmd, "cls")) {
         print_clear();
         console_render_status_line();
@@ -353,6 +473,18 @@ static void console_submit_line() {
         ramfs_cmd_touch(has_arg1 ? arg1 : "");
     } else if (fn_streq(cmd, "mv")) {
         ramfs_cmd_mv(has_arg1 ? arg1 : "", has_arg2 ? arg2 : "");
+    } else if (fn_streq(cmd, "cp")) {
+        ramfs_cmd_cp(has_arg1 ? arg1 : "", has_arg2 ? arg2 : "");
+    } else if (fn_streq(cmd, "cat")) {
+        ramfs_cmd_cat(has_arg1 ? arg1 : "");
+    } else if (fn_streq(cmd, "rm")) {
+        ramfs_cmd_rm(has_arg1 ? arg1 : "");
+    } else if (fn_streq(cmd, "rmdir")) {
+        ramfs_cmd_rmdir(has_arg1 ? arg1 : "");
+    } else if (fn_streq(cmd, "stat")) {
+        ramfs_cmd_stat(has_arg1 ? arg1 : "");
+    } else if (fn_streq(cmd, "history")) {
+        console_print_history();
     } else if (fn_streq(cmd, "nat")) {
         if (!has_arg1) {
             print_str("nat: missing file operand\n");
@@ -406,6 +538,7 @@ void console_handle_backspace() {
 }
 
 void console_handle_tab() {
+    console_try_tab_complete_command();
     console_try_tab_complete_path_token();
 }
 

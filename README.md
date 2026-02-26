@@ -1,8 +1,6 @@
-# PipOS (x86_64 Hobby Kernel)
+# PipOS (x86_64 Kernel)
 
 PipOS is a small 64-bit hobby operating system kernel written mostly in C with a small amount of x86_64 assembly for boot and interrupt/exception entry stubs.
-
-This project started from the early tutorial codebase by **David Callanan (@CodePulse)** and has since been extended/refactored with new kernel features (interrupts, PIT/RTC, console shell, in-memory filesystem, status line, exception handlers, etc.).
 
 ## Attribution
 
@@ -15,7 +13,12 @@ This repository is an independent derivative project with additional features an
 
 ## Current Features
 
-- 32-bit boot code -> switch to 64-bit long mode
+- 32-bit boot code -> switch to 64
+  - `#GP` General Protection Fault
+  - `#PF` Page Fault
+- RTC time reads (`HH:MM:SS`)
+- Interactive shell-like console:
+  - command history (`Up` / `-bit long mode
 - VGA text-mode output (80x25)
 - IDT + PIC initialization
 - IRQ handlers:

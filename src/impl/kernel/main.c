@@ -87,6 +87,13 @@ static char apply_case(char c, bool shift, bool caps_lock) {
     return c;
 }
 
+static char to_lower_ascii(char c) {
+    if (c >= 'A' && c <= 'Z') {
+        return c + ('a' - 'A');
+    }
+    return c;
+}
+
 static char keyboard_to_ascii_be(uint16_t code, bool shift, bool altgr, bool caps_lock) {
     if (altgr) {
         switch (code) {
@@ -245,12 +252,8 @@ static void handle_keyboard_input(struct KeyboardEvent event) {
     }
 
     if (nat_is_active()) {
-        if (ctrl && (ch == 's' || ch == 'S')) {
-            nat_handle_ctrl('s');
-            return;
-        }
-        if (ctrl && (ch == 'q' || ch == 'Q')) {
-            nat_handle_ctrl('q');
+        if (ctrl) {
+            nat_handle_ctrl((uint8_t) to_lower_ascii(ch));
             return;
         }
         nat_handle_char(ch);

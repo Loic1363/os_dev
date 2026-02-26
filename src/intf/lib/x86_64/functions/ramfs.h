@@ -16,3 +16,8 @@ void ramfs_cmd_cd(const char* path_opt);
 void ramfs_cmd_mkdir(const char* path);
 void ramfs_cmd_touch(const char* path);
 void ramfs_cmd_mv(const char* src_path, const char* dst_path);
+void ramfs_cmd_cp(const char* src_path, const char* dst_path);
+void ramfs_cmd_cat(const char* path);
+void ramfs_cmd_rm(const char* path);
+void ramfs_cmd_rmdir(const char* path);
+void ramfs_cmd_stat(const char* path);

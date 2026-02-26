@@ -260,6 +260,30 @@ static uint8_t fs_is_ancestor(int16_t ancestor, int16_t node) {
     return 0;
 }
 
+static void fs_free_node_shallow(int16_t node) {
+    if (node < 0) {
+        return;
+    }
+    g_fs_nodes[node].used = 0;
+    g_fs_nodes[node].type = FS_NODE_UNUSED;
+    g_fs_nodes[node].parent = -1;
+    g_fs_nodes[node].first_child = -1;
+    g_fs_nodes[node].next_sibling = -1;
+    g_fs_nodes[node].name[0] = '\0';
+    g_fs_nodes[node].content_len = 0;
+    g_fs_nodes[node].content[0] = '\0';
+}
+
+static uint16_t fs_dir_child_count(int16_t dir) {
+    uint16_t count = 0;
+    int16_t child = (dir >= 0) ? g_fs_nodes[dir].first_child : -1;
+    while (child >= 0) {
+        count++;
+        child = g_fs_nodes[child].next_sibling;
+    }
+    return count;
+}
+
 static uint8_t fs_build_path(int16_t node, char* out, size_t out_max) {
     if (out_max < 2 || node < 0) {
         return 0;
@@ -731,4 +755,186 @@ void ramfs_cmd_mv(const char* src_path, const char* dst_path) {
     }
 
     fn_strcopy(g_fs_nodes[src].name, new_name, FS_NAME_MAX);
+}
+
+void ramfs_cmd_cp(const char* src_path, const char* dst_path) {
+    int16_t src;
+    if (src_path == NULL || dst_path == NULL || src_path[0] == '\0' || dst_path[0] == '\0') {
+        print_str("cp: missing operand\n");
+        return;
+    }
+
+    if (!fs_resolve_path(src_path, &src)) {
+        print_str("cp: source not found\n");
+        return;
+    }
+    if (g_fs_nodes[src].type != FS_NODE_FILE) {
+        print_str("cp: only file copy is supported\n");
+        return;
+    }
+
+    int16_t dst_node = -1;
+    if (fs_resolve_path(dst_path, &dst_node)) {
+        if (g_fs_nodes[dst_node].type == FS_NODE_DIR) {
+            int16_t existing = fs_find_child(dst_node, g_fs_nodes[src].name);
+            if (existing < 0) {
+                existing = fs_create_child(dst_node, g_fs_nodes[src].name, FS_NODE_FILE);
+            }
+            if (existing < 0 || g_fs_nodes[existing].type != FS_NODE_FILE) {
+                print_str("cp: destination create failed\n");
+                return;
+            }
+            g_fs_nodes[existing].content_len = g_fs_nodes[src].content_len;
+            for (size_t i = 0; i < g_fs_nodes[src].content_len; i++) {
+                g_fs_nodes[existing].content[i] = g_fs_nodes[src].content[i];
+            }
+            g_fs_nodes[existing].content[g_fs_nodes[src].content_len] = '\0';
+            return;
+        }
+        if (g_fs_nodes[dst_node].type != FS_NODE_FILE) {
+            print_str("cp: invalid destination\n");
+            return;
+        }
+        g_fs_nodes[dst_node].content_len = g_fs_nodes[src].content_len;
+        for (size_t i = 0; i < g_fs_nodes[src].content_len; i++) {
+            g_fs_nodes[dst_node].content[i] = g_fs_nodes[src].content[i];
+        }
+        g_fs_nodes[dst_node].content[g_fs_nodes[src].content_len] = '\0';
+        return;
+    }
+
+    int16_t parent;
+    char name[FS_NAME_MAX];
+    if (!fs_resolve_parent_for_create(dst_path, &parent, name)) {
+        print_str("cp: invalid destination path\n");
+        return;
+    }
+    int16_t created = fs_create_child(parent, name, FS_NODE_FILE);
+    if (created < 0) {
+        print_str("cp: destination create failed\n");
+        return;
+    }
+    g_fs_nodes[created].content_len = g_fs_nodes[src].content_len;
+    for (size_t i = 0; i < g_fs_nodes[src].content_len; i++) {
+        g_fs_nodes[created].content[i] = g_fs_nodes[src].content[i];
+    }
+    g_fs_nodes[created].content[g_fs_nodes[src].content_len] = '\0';
+}
+
+void ramfs_cmd_cat(const char* path) {
+    int16_t node;
+    if (path == NULL || path[0] == '\0') {
+        print_str("cat: missing operand\n");
+        return;
+    }
+    if (!fs_resolve_path(path, &node)) {
+        print_str("cat: file not found\n");
+        return;
+    }
+    if (g_fs_nodes[node].type != FS_NODE_FILE) {
+        print_str("cat: not a file\n");
+        return;
+    }
+    print_str(g_fs_nodes[node].content);
+    if (g_fs_nodes[node].content_len == 0 || g_fs_nodes[node].content[g_fs_nodes[node].content_len - 1] != '\n') {
+        print_char('\n');
+    }
+}
+
+void ramfs_cmd_rm(const char* path) {
+    int16_t node;
+    if (path == NULL || path[0] == '\0') {
+        print_str("rm: missing operand\n");
+        return;
+    }
+    if (!fs_resolve_path(path, &node)) {
+        print_str("rm: path not found\n");
+        return;
+    }
+    if (node == g_fs_root) {
+        print_str("rm: cannot remove root\n");
+        return;
+    }
+    if (g_fs_nodes[node].type != FS_NODE_FILE) {
+        print_str("rm: not a file\n");
+        return;
+    }
+    if (!fs_detach_child(node)) {
+        print_str("rm: detach failed\n");
+        return;
+    }
+    fs_free_node_shallow(node);
+}
+
+void ramfs_cmd_rmdir(const char* path) {
+    int16_t node;
+    if (path == NULL || path[0] == '\0') {
+        print_str("rmdir: missing operand\n");
+        return;
+    }
+    if (!fs_resolve_path(path, &node)) {
+        print_str("rmdir: path not found\n");
+        return;
+    }
+    if (node == g_fs_root) {
+        print_str("rmdir: cannot remove root\n");
+        return;
+    }
+    if (node == g_fs_home) {
+        print_str("rmdir: cannot remove home\n");
+        return;
+    }
+    if (g_fs_nodes[node].type != FS_NODE_DIR) {
+        print_str("rmdir: not a directory\n");
+        return;
+    }
+    if (g_fs_nodes[node].first_child >= 0) {
+        print_str("rmdir: directory not empty\n");
+        return;
+    }
+    if (fs_is_ancestor(node, g_fs_cwd)) {
+        print_str("rmdir: directory is in use\n");
+        return;
+    }
+    if (!fs_detach_child(node)) {
+        print_str("rmdir: detach failed\n");
+        return;
+    }
+    fs_free_node_shallow(node);
+}
+
+void ramfs_cmd_stat(const char* path) {
+    int16_t node;
+    char full_path[PATH_BUF_MAX];
+    if (path == NULL || path[0] == '\0') {
+        node = g_fs_cwd;
+    } else if (!fs_resolve_path(path, &node)) {
+        print_str("stat: path not found\n");
+        return;
+    }
+
+    print_str("type=");
+    if (g_fs_nodes[node].type == FS_NODE_DIR) {
+        print_str("dir\n");
+    } else if (g_fs_nodes[node].type == FS_NODE_FILE) {
+        print_str("file\n");
+    } else {
+        print_str("unknown\n");
+    }
+
+    if (fs_build_path(node, full_path, sizeof(full_path))) {
+        print_str("path=");
+        print_str(full_path);
+        print_char('\n');
+    }
+
+    if (g_fs_nodes[node].type == FS_NODE_DIR) {
+        print_str("children=");
+        print_uint64_dec(fs_dir_child_count(node));
+        print_char('\n');
+    } else if (g_fs_nodes[node].type == FS_NODE_FILE) {
+        print_str("size=");
+        print_uint64_dec(g_fs_nodes[node].content_len);
+        print_char('\n');
+    }
 }

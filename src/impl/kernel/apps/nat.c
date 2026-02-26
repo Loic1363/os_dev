@@ -24,11 +24,14 @@ static size_t g_nat_len = 0;
 static size_t g_nat_cursor = 0;
 static size_t g_nat_view_line = 0;
 static uint8_t g_nat_dirty = 0;
+static uint8_t g_nat_quit_armed = 0;
 static char g_nat_status_msg[64];
 static uint64_t g_nat_last_blink_tick = 0;
 static uint8_t g_nat_cursor_visible = 1;
 static size_t g_nat_cursor_row = NAT_TEXT_ROW_START;
 static size_t g_nat_cursor_col = 0;
+static char g_nat_clipboard[NAT_BUF_MAX];
+static size_t g_nat_clipboard_len = 0;
 
 static void nat_set_status(const char* msg) {
     fn_strcopy(g_nat_status_msg, msg, sizeof(g_nat_status_msg));
@@ -125,7 +128,7 @@ static void nat_render_header() {
 
 static void nat_render_help() {
     print_clear_row_at(NAT_HELP_ROW, PRINT_COLOR_BLACK, PRINT_COLOR_LIGHT_GRAY);
-    print_write_str_at(NAT_HELP_ROW, 0, " Ctrl+S Save | Ctrl+Q Quit | Arrows Move | Tab=4 spaces ", PRINT_COLOR_BLACK, PRINT_COLOR_LIGHT_GRAY);
+    print_write_str_at(NAT_HELP_ROW, 0, " ^O WriteOut  ^X Exit  ^K CutLn  ^U Uncut  ^A Home  ^E End  ^L Refresh ", PRINT_COLOR_BLACK, PRINT_COLOR_LIGHT_GRAY);
 }
 
 static void nat_render_status_msg() {
@@ -216,6 +219,7 @@ static void nat_insert_char(char ch) {
     g_nat_buf[g_nat_len] = '\0';
     g_nat_cursor++;
     g_nat_dirty = 1;
+    g_nat_quit_armed = 0;
 }
 
 static void nat_delete_before_cursor() {
@@ -229,6 +233,157 @@ static void nat_delete_before_cursor() {
     g_nat_cursor--;
     g_nat_buf[g_nat_len] = '\0';
     g_nat_dirty = 1;
+    g_nat_quit_armed = 0;
+}
+
+static void nat_delete_range(size_t start, size_t end) {
+    if (start >= end || end > g_nat_len) {
+        return;
+    }
+
+    size_t count = end - start;
+    for (size_t i = start; i + count < g_nat_len; i++) {
+        g_nat_buf[i] = g_nat_buf[i + count];
+    }
+    g_nat_len -= count;
+    g_nat_buf[g_nat_len] = '\0';
+
+    if (g_nat_cursor > end) {
+        g_nat_cursor -= count;
+    } else if (g_nat_cursor > start) {
+        g_nat_cursor = start;
+    }
+}
+
+static void nat_insert_buffer(const char* data, size_t len) {
+    if (len == 0) {
+        return;
+    }
+    if (g_nat_len + len >= NAT_BUF_MAX) {
+        nat_set_status("Paste too large");
+        return;
+    }
+
+    for (size_t i = g_nat_len; i > g_nat_cursor; i--) {
+        g_nat_buf[i + len - 1] = g_nat_buf[i - 1];
+    }
+    for (size_t i = 0; i < len; i++) {
+        g_nat_buf[g_nat_cursor + i] = data[i];
+    }
+    g_nat_len += len;
+    g_nat_cursor += len;
+    g_nat_buf[g_nat_len] = '\0';
+    g_nat_dirty = 1;
+    g_nat_quit_armed = 0;
+}
+
+static void nat_get_current_line_bounds(size_t* out_start, size_t* out_end_exclusive) {
+    size_t start = nat_line_start_from_index(g_nat_cursor);
+    size_t end = nat_line_end_from_index(g_nat_cursor);
+    if (end < g_nat_len && g_nat_buf[end] == '\n') {
+        end++;
+    }
+    *out_start = start;
+    *out_end_exclusive = end;
+}
+
+static void nat_cut_current_line() {
+    size_t start;
+    size_t end;
+    nat_get_current_line_bounds(&start, &end);
+    if (start == end) {
+        g_nat_clipboard_len = 0;
+        g_nat_clipboard[0] = '\0';
+        nat_set_status("Nothing to cut");
+        return;
+    }
+
+    size_t len = end - start;
+    if (len >= NAT_BUF_MAX) {
+        len = NAT_BUF_MAX - 1;
+    }
+    for (size_t i = 0; i < len; i++) {
+        g_nat_clipboard[i] = g_nat_buf[start + i];
+    }
+    g_nat_clipboard[len] = '\0';
+    g_nat_clipboard_len = len;
+
+    nat_delete_range(start, end);
+    g_nat_cursor = start;
+    g_nat_dirty = 1;
+    g_nat_quit_armed = 0;
+    nat_set_status("Cut line");
+}
+
+static void nat_uncut() {
+    if (g_nat_clipboard_len == 0) {
+        nat_set_status("Clipboard empty");
+        return;
+    }
+    nat_insert_buffer(g_nat_clipboard, g_nat_clipboard_len);
+    nat_set_status("Uncut");
+}
+
+static void nat_move_home() {
+    g_nat_cursor = nat_line_start_from_index(g_nat_cursor);
+}
+
+static void nat_move_end() {
+    g_nat_cursor = nat_line_end_from_index(g_nat_cursor);
+}
+
+static void nat_save() {
+    if (ramfs_write_file(g_nat_path, g_nat_buf, g_nat_len)) {
+        g_nat_dirty = 0;
+        g_nat_quit_armed = 0;
+        nat_set_status("Wrote file");
+    } else {
+        nat_set_status("Write failed");
+    }
+}
+
+static void nat_try_quit() {
+    if (g_nat_dirty && !g_nat_quit_armed) {
+        g_nat_quit_armed = 1;
+        nat_set_status("Unsaved changes. ^O to save, ^X again to quit");
+        return;
+    }
+
+    g_nat_active = 0;
+    g_nat_quit_armed = 0;
+    console_clear_screen();
+}
+
+static void nat_show_cursor_info() {
+    char msg[64];
+    size_t p = 0;
+    size_t line = nat_line_number_of_cursor() + 1;
+    size_t col = nat_cursor_column() + 1;
+    msg[0] = '\0';
+
+    const char* a = "Ln ";
+    for (size_t i = 0; a[i] && p + 1 < sizeof(msg); i++) msg[p++] = a[i];
+    {
+        char tmp[20];
+        size_t n = 0;
+        uint64_t v = line;
+        if (v == 0) tmp[n++] = '0';
+        while (v > 0 && n < sizeof(tmp)) { tmp[n++] = (char)('0' + (v % 10)); v /= 10; }
+        while (n > 0 && p + 1 < sizeof(msg)) msg[p++] = tmp[--n];
+    }
+    if (p + 2 < sizeof(msg)) { msg[p++] = ','; msg[p++] = ' '; }
+    const char* b = "Col ";
+    for (size_t i = 0; b[i] && p + 1 < sizeof(msg); i++) msg[p++] = b[i];
+    {
+        char tmp[20];
+        size_t n = 0;
+        uint64_t v = col;
+        if (v == 0) tmp[n++] = '0';
+        while (v > 0 && n < sizeof(tmp)) { tmp[n++] = (char)('0' + (v % 10)); v /= 10; }
+        while (n > 0 && p + 1 < sizeof(msg)) msg[p++] = tmp[--n];
+    }
+    msg[p] = '\0';
+    nat_set_status(msg);
 }
 
 uint8_t nat_is_active() {
@@ -259,6 +414,7 @@ uint8_t nat_open(const char* path) {
     g_nat_len = read_len;
     g_nat_cursor = g_nat_len;
     g_nat_active = 1;
+    g_nat_quit_armed = 0;
     print_clear();
     nat_render();
     return 1;
@@ -347,21 +503,92 @@ void nat_handle_ctrl(uint8_t key_lower) {
     if (!g_nat_active) return;
 
     if (key_lower == 's') {
-        if (ramfs_write_file(g_nat_path, g_nat_buf, g_nat_len)) {
-            g_nat_dirty = 0;
-            nat_set_status("Saved");
-        } else {
-            nat_set_status("Save failed");
-        }
+        nat_save();
         g_nat_cursor_visible = 1;
         g_nat_last_blink_tick = pit_ticks();
         nat_render();
         return;
     }
 
-    if (key_lower == 'q') {
-        g_nat_active = 0;
-        console_clear_screen();
+    if (key_lower == 'o') {
+        nat_save();
+        g_nat_cursor_visible = 1;
+        g_nat_last_blink_tick = pit_ticks();
+        nat_render();
+        return;
+    }
+
+    if (key_lower == 'x' || key_lower == 'q') {
+        nat_try_quit();
+        if (g_nat_active) {
+            g_nat_cursor_visible = 1;
+            g_nat_last_blink_tick = pit_ticks();
+            nat_render();
+        }
+        return;
+    }
+
+    if (key_lower == 'k') {
+        nat_cut_current_line();
+        g_nat_cursor_visible = 1;
+        g_nat_last_blink_tick = pit_ticks();
+        nat_render();
+        return;
+    }
+
+    if (key_lower == 'u') {
+        nat_uncut();
+        g_nat_cursor_visible = 1;
+        g_nat_last_blink_tick = pit_ticks();
+        nat_render();
+        return;
+    }
+
+    if (key_lower == 'a') {
+        nat_move_home();
+        g_nat_cursor_visible = 1;
+        g_nat_last_blink_tick = pit_ticks();
+        nat_render();
+        return;
+    }
+
+    if (key_lower == 'e') {
+        nat_move_end();
+        g_nat_cursor_visible = 1;
+        g_nat_last_blink_tick = pit_ticks();
+        nat_render();
+        return;
+    }
+
+    if (key_lower == 'l') {
+        nat_set_status("Refreshed");
+        g_nat_cursor_visible = 1;
+        g_nat_last_blink_tick = pit_ticks();
+        nat_render();
+        return;
+    }
+
+    if (key_lower == 'g') {
+        nat_set_status("PipOS NAT: ^O WriteOut, ^X Exit, ^K Cut, ^U Uncut");
+        g_nat_cursor_visible = 1;
+        g_nat_last_blink_tick = pit_ticks();
+        nat_render();
+        return;
+    }
+
+    if (key_lower == 'c') {
+        nat_show_cursor_info();
+        g_nat_cursor_visible = 1;
+        g_nat_last_blink_tick = pit_ticks();
+        nat_render();
+        return;
+    }
+
+    if (key_lower == 'w') {
+        nat_set_status("Search not implemented yet");
+        g_nat_cursor_visible = 1;
+        g_nat_last_blink_tick = pit_ticks();
+        nat_render();
         return;
     }
 }
