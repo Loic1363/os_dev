@@ -29,6 +29,8 @@ void print_write_char_at(size_t row_index, size_t col_index, char character, uin
 void print_write_str_at(size_t row_index, size_t col_index, char* string, uint8_t foreground, uint8_t background);
 void print_get_cursor(size_t* row_index, size_t* col_index);
 void print_set_cursor(size_t row_index, size_t col_index);
+size_t print_get_rows();
+size_t print_get_cols();
 void print_char(char character);
 void print_str(const char* string);
 void print_set_color(uint8_t foreground, uint8_t background);

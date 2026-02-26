@@ -7,14 +7,8 @@
 
 #define NAT_BUF_MAX 2048
 #define NAT_PATH_MAX 64
-#define NAT_ROWS 25
-#define NAT_COLS 80
-#define NAT_TEXT_ROW_START 1
-#define NAT_TEXT_ROW_END 22
-#define NAT_TEXT_ROWS (NAT_TEXT_ROW_END - NAT_TEXT_ROW_START + 1)
 #define NAT_STATUS_ROW 0
-#define NAT_HELP_ROW 23
-#define NAT_MSG_ROW 24
+#define NAT_TEXT_ROW_START 1
 #define NAT_CURSOR_BLINK_TICKS 25
 
 static uint8_t g_nat_active = 0;
@@ -32,6 +26,36 @@ static size_t g_nat_cursor_row = NAT_TEXT_ROW_START;
 static size_t g_nat_cursor_col = 0;
 static char g_nat_clipboard[NAT_BUF_MAX];
 static size_t g_nat_clipboard_len = 0;
+
+static size_t nat_cols() {
+    return print_get_cols();
+}
+
+static size_t nat_rows() {
+    return print_get_rows();
+}
+
+static size_t nat_help_row() {
+    size_t rows = nat_rows();
+    return (rows >= 2) ? (rows - 2) : 0;
+}
+
+static size_t nat_msg_row() {
+    size_t rows = nat_rows();
+    return (rows >= 1) ? (rows - 1) : 0;
+}
+
+static size_t nat_text_row_end() {
+    size_t help_row = nat_help_row();
+    if (help_row <= NAT_TEXT_ROW_START) {
+        return NAT_TEXT_ROW_START;
+    }
+    return help_row - 1;
+}
+
+static size_t nat_text_rows() {
+    return nat_text_row_end() - NAT_TEXT_ROW_START + 1;
+}
 
 static void nat_set_status(const char* msg) {
     fn_strcopy(g_nat_status_msg, msg, sizeof(g_nat_status_msg));
@@ -99,8 +123,8 @@ static void nat_recompute_view_for_cursor() {
     size_t cursor_line = nat_line_number_of_cursor();
     if (cursor_line < g_nat_view_line) {
         g_nat_view_line = cursor_line;
-    } else if (cursor_line >= g_nat_view_line + NAT_TEXT_ROWS) {
-        g_nat_view_line = cursor_line - NAT_TEXT_ROWS + 1;
+    } else if (cursor_line >= g_nat_view_line + nat_text_rows()) {
+        g_nat_view_line = cursor_line - nat_text_rows() + 1;
     }
 }
 
@@ -127,13 +151,15 @@ static void nat_render_header() {
 }
 
 static void nat_render_help() {
-    print_clear_row_at(NAT_HELP_ROW, PRINT_COLOR_BLACK, PRINT_COLOR_LIGHT_GRAY);
-    print_write_str_at(NAT_HELP_ROW, 0, " ^O WriteOut  ^X Exit  ^K CutLn  ^U Uncut  ^A Home  ^E End  ^L Refresh ", PRINT_COLOR_BLACK, PRINT_COLOR_LIGHT_GRAY);
+    size_t row = nat_help_row();
+    print_clear_row_at(row, PRINT_COLOR_BLACK, PRINT_COLOR_LIGHT_GRAY);
+    print_write_str_at(row, 0, " ^O WriteOut  ^X Exit  ^K CutLn  ^U Uncut  ^A Home  ^E End  ^L Refresh ", PRINT_COLOR_BLACK, PRINT_COLOR_LIGHT_GRAY);
 }
 
 static void nat_render_status_msg() {
-    print_clear_row_at(NAT_MSG_ROW, PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
-    print_write_str_at(NAT_MSG_ROW, 0, g_nat_status_msg, PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
+    size_t row = nat_msg_row();
+    print_clear_row_at(row, PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
+    print_write_str_at(row, 0, g_nat_status_msg, PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
 }
 
 static void nat_render_text() {
@@ -149,11 +175,11 @@ static void nat_render_text() {
     }
     target_start_idx = idx;
 
-    for (size_t r = NAT_TEXT_ROW_START; r <= NAT_TEXT_ROW_END; r++) {
+    for (size_t r = NAT_TEXT_ROW_START; r <= nat_text_row_end(); r++) {
         print_clear_row_at(r, PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
 
         size_t c = 0;
-        while (target_start_idx < g_nat_len && c < NAT_COLS) {
+        while (target_start_idx < g_nat_len && c < nat_cols()) {
             char ch = g_nat_buf[target_start_idx];
             if (ch == '\n') {
                 target_start_idx++;
@@ -178,11 +204,11 @@ static void nat_update_cursor_screen_position() {
     if (cursor_line < g_nat_view_line) {
         cursor_line = g_nat_view_line;
     }
-    if (cursor_line >= g_nat_view_line + NAT_TEXT_ROWS) {
-        cursor_line = g_nat_view_line + NAT_TEXT_ROWS - 1;
+    if (cursor_line >= g_nat_view_line + nat_text_rows()) {
+        cursor_line = g_nat_view_line + nat_text_rows() - 1;
     }
-    if (cursor_col >= NAT_COLS) {
-        cursor_col = NAT_COLS - 1;
+    if (cursor_col >= nat_cols()) {
+        cursor_col = nat_cols() - 1;
     }
 
     g_nat_cursor_row = NAT_TEXT_ROW_START + (cursor_line - g_nat_view_line);

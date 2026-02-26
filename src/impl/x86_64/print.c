@@ -136,6 +136,14 @@ void print_set_cursor(size_t row_index, size_t col_index) {
     col = col_index;
 }
 
+size_t print_get_rows() {
+    return NUM_ROWS;
+}
+
+size_t print_get_cols() {
+    return NUM_COLS;
+}
+
 void print_char(char character) {
     if (character == '\n') {
         print_newline();

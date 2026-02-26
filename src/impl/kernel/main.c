@@ -4,6 +4,7 @@
 #include "keyboard.h"
 #include "print.h"
 #include "x86_64/pit.h"
+#include "x86_64/vga_text.h"
 
 #define KEY_CODE_1 0x02
 #define KEY_CODE_BACKSPACE 0x0E
@@ -288,6 +289,9 @@ static void print_boot_splash() {
 }
 
 void kernel_main() {
+    // Disabled for now: proper 80x50 VGA text mode also requires loading
+    // an 8x8 font. Changing scanline height alone cuts glyphs in half.
+    // vga_text_set_mode_80x50();
     print_boot_splash();
     print_set_color(PRINT_COLOR_WHITE, PRINT_COLOR_BLACK);
     print_str("Welcome to our 64-bit kernel!\n");

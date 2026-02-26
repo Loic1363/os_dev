@@ -317,29 +317,10 @@ static void console_try_tab_complete_path_token() {
         return;
     }
 
-    // Command-aware completion: path-like tokens are always eligible.
-    // Also allow plain names for commands that operate on cwd entries (e.g. nat, cd, ls).
-    uint8_t allow_plain_name = 0;
-    {
-        size_t first_len = 0;
-        while (first_len < token_start && g_console_line[first_len] != ' ') {
-            first_len++;
-        }
-        char first_cmd[CMD_TOKEN_MAX];
-        size_t copy_len = (first_len < (CMD_TOKEN_MAX - 1)) ? first_len : (CMD_TOKEN_MAX - 1);
-        for (size_t i = 0; i < copy_len; i++) {
-            first_cmd[i] = g_console_line[i];
-        }
-        first_cmd[copy_len] = '\0';
-
-        if (fn_streq(first_cmd, "cd") || fn_streq(first_cmd, "ls") || fn_streq(first_cmd, "tree") ||
-            fn_streq(first_cmd, "nat") || fn_streq(first_cmd, "touch") || fn_streq(first_cmd, "mkdir") ||
-            fn_streq(first_cmd, "mv")) {
-            allow_plain_name = 1;
-        }
-    }
-
-    if (!allow_plain_name && token[0] != '/' && token[0] != '.' && token[0] != '~') {
+    // For any argument token (i.e. not the first word), allow plain-name completion
+    // against cwd entries. This makes Tab work for rm/cp/cat/stat/etc as well.
+    uint8_t is_first_token = (token_start == 0);
+    if (is_first_token && token[0] != '/' && token[0] != '.' && token[0] != '~') {
         return;
     }
 
