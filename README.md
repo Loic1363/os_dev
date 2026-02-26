@@ -1,5 +1,7 @@
 # PipOS
 
+[![CI](https://github.com/Loic1363/os_dev/actions/workflows/ci.yml/badge.svg)](https://github.com/Loic1363/os_dev/actions/workflows/ci.yml)
+
 PipOS is a small x86_64 kernel project with a text-mode interface, a built-in shell, a RAM-backed filesystem, and a custom text editor (`nat`).
 It is written mostly in C, with a small amount of x86_64 assembly where low-level entry points are required.
 
