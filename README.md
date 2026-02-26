@@ -1,69 +1,17 @@
 # PipOS
 
-PipOS is a small x86_64 hobby kernel with a text-mode interface, a built-in shell, a RAM-backed filesystem, and a custom text editor (`nat`).
-
-It is written mostly in C, with a small amount of x86_64 assembly for boot and interrupt/exception entry stubs.
-
-## Screenshot
-
-Boot / shell startup screen:
-
 ![PipOS loading screen](ext_src/pic/loading_screen.png)
+
+PipOS is a small x86_64 hobby kernel with a text-mode interface, a built-in shell, a RAM-backed filesystem, and a custom text editor (`nat`).
+It is written mostly in C, with a small amount of x86_64 assembly where low-level entry points are required.
 
 ## Features
 
-- x86_64 boot flow (32-bit setup to 64-bit kernel)
-- VGA text-mode output
-- IDT + PIC initialization
-- IRQ handling:
-  - PIT timer (`IRQ0`)
-  - PS/2 keyboard (`IRQ1`)
-- CPU exception handlers with panic output:
-  - `#DE` (Divide Error)
-  - `#GP` (General Protection Fault)
-  - `#PF` (Page Fault)
-- RTC time access (`HH:MM:SS`)
-- Interactive shell-like console:
-  - command history (`Up` / `Down`)
-  - `Tab` completion (commands + paths, unique-match)
-  - colored prompt (`admin:~$`)
-  - top status line (`PIT` + `RTC`)
-  - `Ctrl+L` clear
-- In-memory filesystem (RAM FS)
-- `nat` text editor (Nano-like shortcuts, PipOS-style UI)
+The current kernel boots into a usable text shell with a status bar, command history, `Tab` completion, and a RAM-backed filesystem. It also includes basic interrupt handling (PIT timer and PS/2 keyboard), RTC time access, panic handlers for common CPU exceptions (`#DE`, `#GP`, `#PF`), and a custom Nano-like editor called `nat`.
 
-## Shell Commands (Current)
+The shell already supports file and directory work in the RAM FS (`ls`, `cd`, `mkdir`, `touch`, `mv`, `cp`, `rm`, `rmdir`, `cat`, `stat`), plus debug/system commands like `time`, `uptime`, `ticks`, `history`, and exception trigger commands.
 
-- `help`, `help <command>`
-- `clear`, `cls`
-- `ticks`, `time`, `uptime`
-- `about`, `version`
-- `echo`
-- `pwd`, `ls`, `tree`, `cd`
-- `mkdir`, `touch`, `mv`, `cp`
-- `cat`, `rm`, `rmdir`, `stat`
-- `history`
-- `nat <file>`
-- exception tests:
-  - `panic_de`
-  - `panic_gp`
-  - `panic_pf`
-
-## `nat` Editor (Current Shortcuts)
-
-- `Ctrl+O` write/save
-- `Ctrl+X` exit
-- `Ctrl+S` save (alias)
-- `Ctrl+Q` quit (alias)
-- `Ctrl+K` cut line
-- `Ctrl+U` uncut / paste line
-- `Ctrl+A` line start
-- `Ctrl+E` line end
-- `Ctrl+L` refresh
-- `Ctrl+G` help hint
-- `Ctrl+C` cursor position
-- `Ctrl+W` search placeholder
-- arrows, `Backspace`, `Enter`, `Tab`
+`nat` is designed with a PipOS identity but follows familiar Nano-style controls (`Ctrl+O` save, `Ctrl+X` quit, cursor movement, line cut/paste, refresh, etc.).
 
 ## Project Layout
 
@@ -107,9 +55,9 @@ Boot / shell startup screen:
 └── targets/
 ```
 
-## In-Kernel RAM FS (Example Tree)
+## RAM FS (In-Kernel)
 
-The shell operates on a RAM-backed filesystem created at boot (not your host filesystem).
+The shell operates on a RAM-backed filesystem created at boot. It is separate from your host filesystem and is meant for in-kernel tooling and editor workflows.
 
 ```text
 /
@@ -127,29 +75,23 @@ The shell operates on a RAM-backed filesystem created at boot (not your host fil
 
 ## Build and Run
 
-### Requirements
+You need Docker and `qemu-system-x86_64`.
 
-- Docker
-- `qemu-system-x86_64`
-
-### Build the Docker image (once)
+Build the Docker image once:
 
 ```bash
 sudo docker build buildenv -t myos-buildenv
 ```
 
-### One-command run (recommended)
+Then run PipOS with one command:
 
 ```bash
 ./boot.sh
 ```
 
-This script:
+`boot.sh` builds the kernel/ISO in Docker and launches QEMU.
 
-1. Builds the kernel and ISO inside Docker
-2. Launches QEMU
-
-### Manual build / run
+Manual run is also possible:
 
 ```bash
 sudo docker run --rm -t -v "$(pwd):/root/env" myos-buildenv bash -lc "make build-x86_64"
@@ -158,17 +100,11 @@ qemu-system-x86_64 -cdrom dist/x86_64/kernel.iso -m 256M -display sdl
 
 ## Notes
 
-- The shell filesystem is currently RAM-only (no disk persistence yet).
-- `nat` edits files inside the in-kernel RAM FS.
-- The keyboard layout is Belgian AZERTY (ASCII-oriented in VGA text mode).
+The filesystem is currently RAM-only (no disk persistence yet), and `nat` edits files inside that in-kernel RAM FS. The keyboard layout is Belgian AZERTY with ASCII-oriented output for VGA text mode.
 
 ## Roadmap
 
-- real search in `nat` (`Ctrl+W`)
-- file content helpers (`write`, `append`, `grep`)
-- recursive copy / delete in RAM FS
-- serial COM1 logging
-- disk-backed filesystem support (FAT, read-only first)
+Next steps include real search in `nat`, better RAM FS tooling (`write`, `append`, `grep`, recursive operations), serial COM1 logging, and eventually a disk-backed filesystem (FAT read-only first).
 
 ## License
 
